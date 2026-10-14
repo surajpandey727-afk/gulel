@@ -67,3 +67,16 @@ describe("compliance", () => {
     expect(r.warnings.join(" ")).toMatch(/not verified/);
   });
 });
+
+import { diffRegistry } from "@/lib/triggers/diff";
+describe("trigger diff", () => {
+  const base = { status: "active", insolvency: false, accountsOverdue: false, confirmationOverdue: false, lastAccountsMadeUpTo: "2025-03-31", officers: [{ name: "Amelia Grant", role: "director" }] };
+  it("no change → no triggers", () => expect(diffRegistry(base, { ...base, officers: [...base.officers] })).toEqual([]));
+  it("detects leadership changes, new accounts and insolvency", () => {
+    const kinds = diffRegistry(base, { ...base, insolvency: true, lastAccountsMadeUpTo: "2026-03-31", officers: [{ name: "Tom Hale", role: "director" }] }).map((c) => c.kind).sort();
+    expect(kinds).toEqual(["insolvency", "leadership_joined", "leadership_left", "new_accounts"]);
+  });
+  it("rates a move away from active as high materiality", () => {
+    expect(diffRegistry(base, { ...base, status: "liquidation" })[0]).toMatchObject({ kind: "status_change", materiality: "high" });
+  });
+});

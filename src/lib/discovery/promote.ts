@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addContact, addEvidence, createOrganisation } from "@/lib/orgs/service";
 import { advancedSearch, getOfficers, getProfile, officerDisplayName, profileToFindings, companiesHouseConfigured } from "./companies-house";
 import { normaliseCompanyName, normalisePersonName } from "@/lib/import/normalise";
+import { saveSnapshot, toSnapshot } from "@/lib/triggers/monitor";
 
 const FIELD: Record<string, string> = {
   funding: "signal.funding", expansion: "signal.expansion", launch: "signal.launch", rebrand: "signal.rebrand", consolidation: "signal.consolidation",
@@ -59,6 +60,7 @@ export async function enrichFromCompaniesHouse(workspaceId: string, userId: stri
   }
   const [profile, officers] = await Promise.all([getProfile(number), getOfficers(number)]);
   const f = profileToFindings(profile);
+  await saveSnapshot(supabase, workspaceId, organisationId, toSnapshot(profile, officers)); // baseline for trigger monitoring
   for (const e of f.evidence) {
     await addEvidence(workspaceId, userId, { organisation_id: organisationId, claim_field: e.claim_field, claim_text: e.claim_text, fact_type: "dated_filing", source_name: "Companies House", source_url: f.url, value_as_of: e.value_as_of, confidence: 0.95, is_adverse: e.is_adverse });
   }

@@ -6,15 +6,17 @@ import { relTime } from "@/lib/filters";
 import type { AnalystOutput } from "@/lib/ai/agents/analyst";
 import { EmptyState, PageHeader, Panel } from "@/components/neo/surface";
 import { Badge } from "@/components/neo/badge";
+import { TriggerList } from "./trigger-list";
 
 export const metadata = { title: "Intelligence" };
 
 export default async function IntelligencePage() {
   const s = await getSession();
   const supabase = await createClient();
-  const [{ data: insights }, { data: risks }] = await Promise.all([
+  const [{ data: insights }, { data: risks }, { data: triggers }] = await Promise.all([
     supabase.from("insights").select("id, question, conclusion, body, status, created_at").eq("workspace_id", s.workspaceId).neq("status", "dismissed").order("created_at", { ascending: false }).limit(50),
     supabase.from("organisation_risk_flags").select("id, kind, severity, summary, organisation_id, organisations(trading_name)").eq("workspace_id", s.workspaceId).eq("status", "needs_review").limit(20),
+    supabase.from("trigger_events").select("id, organisation_id, kind, materiality, summary, detected_at, organisations(trading_name)").eq("workspace_id", s.workspaceId).eq("status", "new").order("detected_at", { ascending: false }).limit(30),
   ]);
   return (
     <>
@@ -37,8 +39,8 @@ export default async function IntelligencePage() {
         </Panel>
         <Panel title="Needs your judgement" eyebrow="Risk flags awaiting review">
           {risks?.length ? <ul className="flex flex-col gap-2 text-sm">{risks.map((r) => <li key={r.id}><Link href={`/organisations/${r.organisation_id}`} className="font-medium hover:text-oxblood">{(r.organisations as unknown as { trading_name: string }).trading_name}</Link><span className="block text-xs text-ink-3">{r.kind.replace(/_/g, " ")} · {r.summary}</span></li>)}</ul> : <p className="text-sm text-ink-3">Nothing flagged.</p>}
-          <p className="mt-4 text-xs text-ink-3">Trigger monitoring (new funding, launches, leadership changes on qualified organisations) arrives in Phase 3.</p>
         </Panel>
+        <Panel title="Triggers" eyebrow="Material changes at monitored organisations · re-checked weekly" className="xl:col-span-3"><TriggerList triggers={(triggers ?? []) as never} /></Panel>
       </div>
     </>
   );

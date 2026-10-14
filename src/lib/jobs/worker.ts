@@ -4,6 +4,7 @@ import { syncGmailAccount } from "@/lib/channels/gmail-sync";
 import { classifyReply } from "@/lib/inbox/classify";
 import { redact } from "@/lib/crypto";
 import { runCampaign } from "@/lib/discovery/service";
+import { scanTriggers } from "@/lib/triggers/monitor";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
 
@@ -11,6 +12,7 @@ const HANDLERS: Record<string, (j: Job) => Promise<unknown>> = {
   gmail_sync: (j) => syncGmailAccount(j.workspace_id, j.payload.account_id as string),
   classify_reply: (j) => classifyReply(j.workspace_id, j.payload.conversation_message_id as string),
   followup_scan: (j) => followupScan(j.workspace_id),
+  trigger_scan: (j) => scanTriggers(createAdminClient(), j.workspace_id),
   discovery_run: (j) => runCampaign(createAdminClient(), j.workspace_id, j.payload.campaign_id as string, null, "schedule"),
 };
 
@@ -31,6 +33,7 @@ async function schedule() {
   const { data: wss } = await admin.from("workspaces").select("id");
   for (const w of wss ?? []) {
     await admin.from("jobs").upsert({ workspace_id: w.id, type: "followup_scan", idempotency_key: `followups:${day}` }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });
+    await admin.from("jobs").upsert({ workspace_id: w.id, type: "trigger_scan", idempotency_key: `triggers:${week}`, timeout_seconds: 600, max_attempts: 3 }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });
   }
 }
 
