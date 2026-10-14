@@ -77,7 +77,8 @@ export async function requestApprovalAction(draftId: string): Promise<R<string>>
     if (!acc) return { ok: false, error: "Connect Gmail in Settings before requesting approval for an email." };
     const { data: v } = await supabase.from("draft_versions").select("*").eq("id", d.current_version_id).single();
     const { data: last } = await supabase.from("draft_versions").select("version_no").eq("draft_id", draftId).order("version_no", { ascending: false }).limit(1).single();
-    await supabase.from("draft_versions").insert({ ...v, id: undefined, fingerprint: undefined, created_at: undefined, version_no: (last?.version_no ?? 0) + 1, sending_account_id: acc.id, source: "manual", refine_action: "bind_sending_account", created_by: s.userId });
+    const { error: bindErr } = await supabase.from("draft_versions").insert({ ...v, id: undefined, fingerprint: undefined, created_at: undefined, version_no: (last?.version_no ?? 0) + 1, sending_account_id: acc.id, source: "manual", refine_action: "bind_sending_account", created_by: s.userId });
+    if (bindErr) return { ok: false, error: `Could not bind the sending account: ${bindErr.message}` };
   }
   const { data, error } = await supabase.rpc("request_approval", { p_draft_id: draftId });
   if (error) return { ok: false, error: error.message };

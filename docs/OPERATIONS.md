@@ -56,6 +56,11 @@ App hosting (Vercel/Render): set every variable from `.env.example`. `SUPABASE_S
 - [x] External content wrapped as `<untrusted_evidence>`; agent output zod-validated; recipients and citations checked against the package
 - [x] Central suppression list checked at draft time and send time; PECR individual-subscriber block
 - [x] Security headers (frame deny, nosniff, referrer, permissions)
+- [x] No function is executable by `anon`; send/job functions are `service_role` only; approval rows are created only by `request_approval`
+- [x] Preflight requires the approval row to equal the approved version (channel, recipient, subject, sending account) and the account to be in the same workspace; the gateway builds the email from the version row
+- [x] Same-workspace triggers on every child reference; CR/LF rejected in recipient/subject; Gmail 5xx treated as an unknown outcome (never auto-retried)
+- [x] Contact/organisation snapshotted on each approval; retargeting a draft revokes approvals; opt-outs also checked via the recipient channel's owner
+- [ ] Known limits: AI budget check is not atomic (concurrent calls can overshoot slightly) and failed provider calls record no token cost
 - [ ] Disable public sign-up in production
 - [ ] Commercial font licence confirmed
 - [ ] Google OAuth app verification before adding team members

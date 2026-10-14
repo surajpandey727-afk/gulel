@@ -92,7 +92,7 @@ async function call<T>(accountId: string, path: string, init: RequestInit = {}):
   const res = await fetch(`${API}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}`, "content-type": "application/json" } });
   if (!res.ok) {
     const text = await res.text();
-    throw new GmailError(res.status, redact(text).slice(0, 500), res.status === 429 || res.status >= 500);
+    throw new GmailError(res.status, redact(text).slice(0, 500), res.status === 429); // 5xx on send is an UNKNOWN outcome — never auto-retried
   }
   return res.json() as Promise<T>;
 }
@@ -101,7 +101,14 @@ function encodeHeader(v: string) {
   return /^[\x20-\x7e]*$/.test(v) ? v : `=?UTF-8?B?${Buffer.from(v, "utf8").toString("base64")}?=`;
 }
 
+const SINGLE_ADDRESS = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[a-z]{2,}$/i;
+
+/** Header-injection safe: one plain address per field, no CR/LF anywhere in headers. */
 export function buildMime(o: { from: string; to: string; subject: string; body: string; inReplyTo?: string; references?: string }) {
+  for (const [k, val] of Object.entries({ from: o.from, to: o.to, subject: o.subject, inReplyTo: o.inReplyTo ?? "", references: o.references ?? "" })) {
+    if (/[\r\n]/.test(val)) throw new GmailError(0, `Refusing to build email: line break in ${k}`, false);
+  }
+  if (!SINGLE_ADDRESS.test(o.to) || !SINGLE_ADDRESS.test(o.from)) throw new GmailError(0, "Refusing to build email: recipient and sender must each be a single plain address", false);
   const lines = [
     `From: ${o.from}`,
     `To: ${o.to}`,

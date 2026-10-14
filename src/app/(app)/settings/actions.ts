@@ -72,8 +72,9 @@ export async function toggleProviderAction(id: string, enabled: boolean): Promis
     const s = await owner();
     const admin = createAdminClient();
     const { data: c } = await admin.from("provider_connections").select("provider").eq("id", id).eq("workspace_id", s.workspaceId).single();
-    if (enabled && c?.provider !== "anthropic") return { ok: false, error: "Non-Claude providers cannot be enabled for execution in this build." };
-    await admin.from("provider_connections").update({ is_enabled: enabled, status: enabled ? undefined : "disabled" }).eq("id", id);
+    if (!c) return { ok: false, error: "Not found" };
+    if (enabled && c.provider !== "anthropic") return { ok: false, error: "Non-Claude providers cannot be enabled for execution in this build." };
+    await admin.from("provider_connections").update({ is_enabled: enabled, status: enabled ? undefined : "disabled" }).eq("id", id).eq("workspace_id", s.workspaceId);
     await admin.from("audit_logs").insert({ workspace_id: s.workspaceId, actor_type: "user", actor_id: s.userId, action: enabled ? "provider.enabled" : "provider.disabled", entity_type: "provider_connection", entity_id: id });
     revalidatePath("/settings/providers");
     return { ok: true };
@@ -84,7 +85,9 @@ export async function revokeProviderKeyAction(id: string): Promise<R> {
   try {
     const s = await owner();
     const admin = createAdminClient();
-    await admin.from("provider_secrets").delete().eq("connection_id", id);
+    const { data: own } = await admin.from("provider_connections").select("id").eq("id", id).eq("workspace_id", s.workspaceId).maybeSingle();
+    if (!own) return { ok: false, error: "Not found" };
+    await admin.from("provider_secrets").delete().eq("connection_id", own.id);
     await admin.from("provider_connections").update({ is_enabled: false, status: "not_configured", key_hint: null }).eq("id", id).eq("workspace_id", s.workspaceId);
     await admin.from("audit_logs").insert({ workspace_id: s.workspaceId, actor_type: "user", actor_id: s.userId, action: "provider.key_revoked", entity_type: "provider_connection", entity_id: id });
     revalidatePath("/settings/providers");
@@ -112,7 +115,9 @@ export async function disconnectGmailAction(accountId: string): Promise<R> {
   try {
     const s = await owner();
     const admin = createAdminClient();
-    await admin.from("channel_account_secrets").delete().eq("account_id", accountId);
+    const { data: own } = await admin.from("channel_accounts").select("id").eq("id", accountId).eq("workspace_id", s.workspaceId).maybeSingle();
+    if (!own) return { ok: false, error: "Not found" };
+    await admin.from("channel_account_secrets").delete().eq("account_id", own.id);
     await admin.from("channel_accounts").update({ status: "disconnected" }).eq("id", accountId).eq("workspace_id", s.workspaceId);
     await admin.from("audit_logs").insert({ workspace_id: s.workspaceId, actor_type: "user", actor_id: s.userId, action: "gmail.disconnected", entity_type: "channel_account", entity_id: accountId });
     revalidatePath("/settings/integrations");

@@ -11,6 +11,7 @@ export async function syncGmailAccount(workspaceId: string, accountId: string) {
   const admin = createAdminClient();
   const { data: acc } = await admin.from("channel_accounts").select("id, account_email, history_id, status").eq("id", accountId).eq("workspace_id", workspaceId).single();
   if (!acc || acc.status !== "connected") return { skipped: true };
+  if (!acc.account_email) throw new Error("Gmail account has no address on record; reconnect it so replies can be told apart from sent mail");
 
   const { data: convs } = await admin.from("conversations").select("id, provider_thread_id, contact_id, organisation_id, status").eq("workspace_id", workspaceId).eq("channel", "gmail").not("provider_thread_id", "is", null);
   const byThread = new Map((convs ?? []).map((c) => [c.provider_thread_id!, c]));
