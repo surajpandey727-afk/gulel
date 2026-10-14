@@ -15,6 +15,8 @@ const Patch = z.object({
   next_action: z.string().nullable().optional(),
   next_action_due: z.string().nullable().optional(),
   service: z.string().nullable().optional(),
+  competitive_outcome: z.string().nullable().optional(),
+  win_loss_notes: z.string().nullable().optional(),
   proposal_status: z.enum(["not_started", "drafting", "sent", "accepted", "declined"]).nullable().optional(),
 });
 

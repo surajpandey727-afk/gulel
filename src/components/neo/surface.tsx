@@ -33,7 +33,7 @@ export function Panel({
   id?: string;
 }) {
   return (
-    <Surface className={cn("flex flex-col", className)} aria-labelledby={id ? `${id}-title` : undefined}>
+    <Surface className={cn("flex min-w-0 flex-col", className)} aria-labelledby={id ? `${id}-title` : undefined}>
       {(title || actions) && (
         <header className="flex items-start justify-between gap-3 px-5 pt-4">
           <div className="min-w-0">

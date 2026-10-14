@@ -17,7 +17,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Se
   const supabase = await createClient();
   const ws = s.workspaceId;
   const range = { p_workspace_id: ws, p_from: f.from.toISOString(), p_to: f.to.toISOString(), p_include_demo: f.includeDemo };
-  const [uk, ind, funnel, outbound, convs, quals, execs] = await Promise.all([
+  const [uk, ind, funnel, outbound, convs, quals, execs, closed] = await Promise.all([
     supabase.rpc("kpi_summary", { ...range, p_market: "UK" }),
     supabase.rpc("kpi_summary", { ...range, p_market: "IN" }),
     supabase.rpc("funnel_summary", { ...range, p_market: f.market ?? undefined }),
@@ -25,6 +25,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Se
     supabase.from("conversations").select("id, channel, last_inbound_at, latest_classification, status").eq("workspace_id", ws),
     supabase.from("lead_qualifications").select("organisation_id, band").eq("workspace_id", ws).eq("is_current", true),
     supabase.from("agent_executions").select("agent, cost_usd").eq("workspace_id", ws).gte("started_at", range.p_from),
+    supabase.from("opportunities").select("stage, service, lead_source, market, currency, value_amount, actual_value_amount, reason_lost, competitive_outcome, created_at, closed_at, is_demo").eq("workspace_id", ws).in("stage", ["won", "lost"]),
   ]);
   const K = { UK: (uk.data ?? {}) as KpiSummary, IN: (ind.data ?? {}) as KpiSummary };
   const ob = (outbound.data ?? []).filter((o) => (f.includeDemo || !o.is_demo) && (!f.market || o.market === f.market));
@@ -100,6 +101,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Se
           <p className="mt-2 text-xs text-ink-3">{ob.length < 50 ? `Only ${uniq(ob.map(key))} people reached — far too few to judge whether the model works. Treat these as anecdotes.` : "Compare bands only where each has 30+ people reached."}</p>
         </Panel>
 
+        <WinLoss rows={(closed.data ?? []).filter((o) => (f.includeDemo || !o.is_demo) && (!f.market || o.market === f.market))} />
         <Panel title="AI cost efficiency" eyebrow="In range" className="xl:col-span-2">
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div><dt className="text-xs text-ink-3">LLM spend</dt><dd className="tabular text-xl font-semibold">${cost.toFixed(2)}</dd></div>
@@ -111,5 +113,36 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Se
         </Panel>
       </div>
     </>
+  );
+}
+
+type Closed = { stage: string; service: string | null; lead_source: string | null; market: string; currency: string; reason_lost: string | null; competitive_outcome: string | null; created_at: string; closed_at: string | null };
+
+/** Win/loss intelligence. All time (closed deals are few); grouped so small samples stay visible. */
+function WinLoss({ rows }: { rows: Closed[] }) {
+  const group = (k: (r: Closed) => string) => {
+    const m = new Map<string, { won: number; lost: number }>();
+    for (const r of rows) { const g = m.get(k(r)) ?? { won: 0, lost: 0 }; if (r.stage === "won") g.won++; else g.lost++; m.set(k(r), g); }
+    return [...m.entries()].sort((a, b) => b[1].won + b[1].lost - (a[1].won + a[1].lost));
+  };
+  const days = rows.filter((r) => r.stage === "won" && r.closed_at).map((r) => (new Date(r.closed_at!).getTime() - new Date(r.created_at).getTime()) / 86400_000);
+  const reasons = rows.filter((r) => r.stage === "lost" && r.reason_lost).map((r) => r.reason_lost!);
+  const won = rows.filter((r) => r.stage === "won").length;
+  return (
+    <Panel title="Win / loss intelligence" eyebrow={`${rows.length} closed deals · all time`} className="xl:col-span-2">
+      {rows.length === 0 ? <p className="text-sm text-ink-3">No won or lost opportunities recorded yet. Closing a deal requires the actual value (won) or a reason (lost).</p> : (
+        <div className="grid gap-5 md:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-3 md:col-span-3 md:grid-cols-4">
+            <div><dt className="text-xs text-ink-3">Win rate</dt><dd className="tabular text-xl font-semibold">{Math.round((won / rows.length) * 100)}%</dd><dd className="text-[0.7rem] text-ink-3">{won} of {rows.length}</dd></div>
+            <div><dt className="text-xs text-ink-3">Median days to win</dt><dd className="tabular text-xl font-semibold">{days.length ? Math.round(days.sort((a, b) => a - b)[Math.floor(days.length / 2)]) : "—"}</dd></div>
+          </dl>
+          {([["By service", (r: Closed) => r.service ?? "Unspecified"], ["By lead source", (r: Closed) => r.lead_source ?? "Unspecified"]] as const).map(([t, k]) => (
+            <div key={t}><p className="eyebrow mb-2">{t}</p><ul className="flex flex-col gap-1 text-sm">{group(k).map(([g, v]) => <li key={g} className="flex justify-between gap-2"><span className="truncate">{g}</span><span className="tabular text-ink-3">{v.won}W · {v.lost}L</span></li>)}</ul></div>
+          ))}
+          <div><p className="eyebrow mb-2">Reasons lost</p><ul className="list-disc space-y-1 pl-5 text-sm text-ink-2">{reasons.slice(0, 8).map((r, i) => <li key={i}>{r}</li>)}</ul>{!reasons.length && <p className="text-sm text-ink-3">None recorded.</p>}</div>
+        </div>
+      )}
+      {rows.length > 0 && rows.length < 10 && <p className="mt-3 text-xs text-ink-3">Fewer than 10 closed deals — patterns here are anecdotal and are not yet fed back into qualification weights.</p>}
+    </Panel>
   );
 }

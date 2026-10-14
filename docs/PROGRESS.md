@@ -6,7 +6,7 @@ Last updated 2026-10-14. ✅ verified · 🟡 built, blocked on external setup �
 
 | Suite | Command | Result |
 |---|---|---|
-| Unit (email quality, scoring, normalisation, mapping, entity resolution, Companies House mapping, discovery exclusions, compliance) | `npm test` | ✅ 34/34 |
+| Unit (email quality, scoring, normalisation, mapping, entity resolution, Companies House mapping, discovery exclusions, compliance, trigger diff) | `npm test` | ✅ 37/37 |
 | SQL integration: approval integrity, invalidation on edit, gateway-only claim, idempotent send, suppression, org pacing, immutable versions, KPI denominators | `npm run test:sql` | ✅ all assertions |
 | Type-check / lint | `npm run typecheck` · `npx eslint src` | ✅ clean |
 
@@ -33,7 +33,7 @@ Last updated 2026-10-14. ✅ verified · 🟡 built, blocked on external setup �
 - **Phase 1** ✅ built end to end; 🟡 live AI and Gmail steps await credentials (see `OPERATIONS.md` §2).
 - **Phase 2** 🟡 built: discovery campaigns, versioned ICPs, runs with per-source outcomes, signal review (promote / merge / dismiss, browser-verified), scheduled daily/weekly runs, Companies House search and enrichment (mock-tested; needs `COMPANIES_HOUSE_API_KEY`), AI web research with citation verification (needs Anthropic workspace ID). Still to come: MCA vendor, news API, tenders.
 - **Also added:** editing for organisations, contacts, channel verification and evidence status; approval-gated follow-up and reply drafts; meeting-prep briefs and proposal status; Ctrl/⌘ K global search.
-- **Phase 3** ⬜ trigger monitoring, messaging-performance analytics, calibrated propensity, win/loss learning.
+- **Phase 3** 🟡 partly built: weekly registry trigger monitoring (status, insolvency, overdue filings, new accounts, officer changes → evidence + review task + flag; diff unit-tested, needs Companies House key) and win/loss capture with analytics (browser-verified). Still to come: news/funding triggers via cited search, messaging-performance analytics, calibrated propensity, feeding win/loss back into weights.
 
 ## Known gaps / deliberate limits
 

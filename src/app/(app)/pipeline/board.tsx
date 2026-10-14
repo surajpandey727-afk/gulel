@@ -13,7 +13,7 @@ import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { money } from "@/lib/filters";
 import { generateBriefAction, updateOpportunityAction } from "./actions";
 
-export interface Opp { id: string; name: string; service: string | null; stage: string; market: "UK" | "IN"; currency: "GBP" | "INR"; value_amount: number | null; value_basis: string | null; probability_pct: number | null; expected_close_on: string | null; actual_value_amount: number | null; reason_lost: string | null; next_action: string | null; next_action_due: string | null; is_demo: boolean; prep_brief: unknown; proposal_status: string | null; organisation_id: string; organisations: { trading_name: string } | null; contacts: { full_name: string } | null }
+export interface Opp { id: string; name: string; service: string | null; stage: string; market: "UK" | "IN"; currency: "GBP" | "INR"; value_amount: number | null; value_basis: string | null; probability_pct: number | null; expected_close_on: string | null; actual_value_amount: number | null; reason_lost: string | null; next_action: string | null; next_action_due: string | null; is_demo: boolean; prep_brief: unknown; proposal_status: string | null; competitive_outcome: string | null; win_loss_notes: string | null; organisation_id: string; organisations: { trading_name: string } | null; contacts: { full_name: string } | null }
 const STAGES = ["discovery", "meeting", "scoping", "proposal", "negotiation", "won", "lost", "nurture"] as const;
 
 export function PipelineBoard({ opps }: { opps: Opp[] }) {
@@ -80,6 +80,7 @@ function EditOpp({ opp, onClose }: { opp: Opp; onClose: () => void }) {
           probability_pct: num(fd.get("prob")) as number | null, expected_close_on: String(fd.get("close") ?? "") || null, actual_value_amount: num(fd.get("actual")),
           reason_lost: String(fd.get("lost") ?? "") || null, next_action: String(fd.get("next") ?? "") || null, service: String(fd.get("service") ?? "") || null,
           proposal_status: (String(fd.get("proposal_status") ?? "") || null) as "sent" | null,
+          competitive_outcome: String(fd.get("competitive") ?? "") || null, win_loss_notes: String(fd.get("wl_notes") ?? "") || null,
         });
         if (!r.ok) return setErr(r.error);
         onClose(); router.refresh();
@@ -92,6 +93,10 @@ function EditOpp({ opp, onClose }: { opp: Opp; onClose: () => void }) {
         <Field label="Expected close"><Input name="close" type="date" defaultValue={opp.expected_close_on ?? ""} /></Field>
         {stage === "won" && <Field label={`Actual won value (${opp.currency})`} className="sm:col-span-2"><Input name="actual" inputMode="numeric" required defaultValue={opp.actual_value_amount ?? ""} /></Field>}
         {stage === "lost" && <Field label="Reason lost" className="sm:col-span-2"><Textarea name="lost" required defaultValue={opp.reason_lost ?? ""} className="min-h-16" /></Field>}
+        {(stage === "won" || stage === "lost") && <>
+          <Field label="Competitive outcome (if known)"><Input name="competitive" defaultValue={opp.competitive_outcome ?? ""} placeholder="Lost to in-house team / won vs. two agencies" /></Field>
+          <Field label="Win / loss notes"><Input name="wl_notes" defaultValue={opp.win_loss_notes ?? ""} /></Field>
+        </>}
         <Field label="Next action" className="sm:col-span-2"><Input name="next" defaultValue={opp.next_action ?? ""} /></Field>
         <Field label="Proposal status"><Select name="proposal_status" defaultValue={opp.proposal_status ?? ""}><option value="">—</option>{["not_started", "drafting", "sent", "accepted", "declined"].map((x) => <option key={x} value={x}>{x.replace(/_/g, " ")}</option>)}</Select></Field>
         {err && <p role="alert" className="text-sm text-oxblood sm:col-span-2">⚠ {err}</p>}
