@@ -425,6 +425,96 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"discovery_campaigns": {
+                  Row: {
+                    "config": NonNullable<Json>,"created_at": string,"created_by": string | null,"frequency": string,"icp_id": string | null,"id": string,"last_run_at": string | null,"market": string,"max_leads_per_run": number,"max_spend_usd": number,"min_score": number,"name": string,"sources": (string)[],"status": string,"updated_at": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "config"?: NonNullable<Json>,"created_at"?: string,"created_by"?: string | null,"frequency"?: string,"icp_id"?: string | null,"id"?: string,"last_run_at"?: string | null,"market": string,"max_leads_per_run"?: number,"max_spend_usd"?: number,"min_score"?: number,"name": string,"sources"?: (string)[],"status"?: string,"updated_at"?: string,"workspace_id": string
+                  }
+                  Update: {
+                    "config"?: NonNullable<Json>,"created_at"?: string,"created_by"?: string | null,"frequency"?: string,"icp_id"?: string | null,"id"?: string,"last_run_at"?: string | null,"market"?: string,"max_leads_per_run"?: number,"max_spend_usd"?: number,"min_score"?: number,"name"?: string,"sources"?: (string)[],"status"?: string,"updated_at"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "discovery_campaigns_icp_id_fkey"
+      columns: ["icp_id"]
+isOneToOne: false
+      referencedRelation: "icps"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "discovery_campaigns_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"discovery_runs": {
+                  Row: {
+                    "campaign_id": string,"candidates_found": number,"cost_usd": number,"error": string | null,"finished_at": string | null,"id": string,"new_signals": number,"per_source": NonNullable<Json>,"started_at": string,"started_by": string | null,"status": string,"trigger": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "campaign_id": string,"candidates_found"?: number,"cost_usd"?: number,"error"?: string | null,"finished_at"?: string | null,"id"?: string,"new_signals"?: number,"per_source"?: NonNullable<Json>,"started_at"?: string,"started_by"?: string | null,"status"?: string,"trigger"?: string,"workspace_id": string
+                  }
+                  Update: {
+                    "campaign_id"?: string,"candidates_found"?: number,"cost_usd"?: number,"error"?: string | null,"finished_at"?: string | null,"id"?: string,"new_signals"?: number,"per_source"?: NonNullable<Json>,"started_at"?: string,"started_by"?: string | null,"status"?: string,"trigger"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "discovery_runs_campaign_id_fkey"
+      columns: ["campaign_id"]
+isOneToOne: false
+      referencedRelation: "discovery_campaigns"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "discovery_runs_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"discovery_signals": {
+                  Row: {
+                    "campaign_id": string | null,"candidate_domain": string | null,"candidate_name": string,"candidate_registration": string | null,"claim_text": string,"created_at": string,"external_id": string | null,"id": string,"market": string | null,"match_hint": Json | null,"organisation_id": string | null,"published_at": string | null,"raw": NonNullable<Json>,"reviewed_at": string | null,"reviewed_by": string | null,"run_id": string | null,"signal_type": string,"source": string,"source_url": string | null,"status": string,"strength": string,"uncertainty": string | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "campaign_id"?: string | null,"candidate_domain"?: string | null,"candidate_name": string,"candidate_registration"?: string | null,"claim_text": string,"created_at"?: string,"external_id"?: string | null,"id"?: string,"market"?: string | null,"match_hint"?: Json | null,"organisation_id"?: string | null,"published_at"?: string | null,"raw"?: NonNullable<Json>,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"run_id"?: string | null,"signal_type": string,"source": string,"source_url"?: string | null,"status"?: string,"strength"?: string,"uncertainty"?: string | null,"workspace_id": string
+                  }
+                  Update: {
+                    "campaign_id"?: string | null,"candidate_domain"?: string | null,"candidate_name"?: string,"candidate_registration"?: string | null,"claim_text"?: string,"created_at"?: string,"external_id"?: string | null,"id"?: string,"market"?: string | null,"match_hint"?: Json | null,"organisation_id"?: string | null,"published_at"?: string | null,"raw"?: NonNullable<Json>,"reviewed_at"?: string | null,"reviewed_by"?: string | null,"run_id"?: string | null,"signal_type"?: string,"source"?: string,"source_url"?: string | null,"status"?: string,"strength"?: string,"uncertainty"?: string | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "discovery_signals_campaign_id_fkey"
+      columns: ["campaign_id"]
+isOneToOne: false
+      referencedRelation: "discovery_campaigns"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "discovery_signals_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "discovery_signals_run_id_fkey"
+      columns: ["run_id"]
+isOneToOne: false
+      referencedRelation: "discovery_runs"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "discovery_signals_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"draft_versions": {
                   Row: {
                     "agent_execution_id": string | null,"body": string,"channel": string,"created_at": string,"created_by": string | null,"draft_id": string,"fingerprint": string | null,"id": string,"quality": NonNullable<Json>,"recipient_channel_id": string | null,"recipient_value": string,"refine_action": string | null,"sending_account_id": string | null,"source": string,"strategic_angle": string | null,"subject": string | null,"supporting_evidence_ids": (string)[],"version_no": number,"voice_version_id": string | null,"workspace_id": string

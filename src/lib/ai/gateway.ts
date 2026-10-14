@@ -106,6 +106,8 @@ export interface RunOptions<S extends z.ZodType> {
   entity?: { type: string; id: string };
   userId?: string | null;
   correlationId?: string;
+  /** Enables Anthropic server-side web search; output is then parsed from JSON text instead of a constrained format. */
+  webSearch?: { maxUses: number; blockedDomains?: string[] };
 }
 
 export interface RunResult<T> {
@@ -114,6 +116,15 @@ export interface RunResult<T> {
   model: string;
   provider: string;
   costUsd: number;
+  /** URLs actually returned by web search during this call (for citation verification). */
+  searchedUrls: string[];
+}
+
+function extractJson(text: string): unknown {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new SyntaxError("no JSON object in output");
+  return JSON.parse(text.slice(start, end + 1));
 }
 
 export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): Promise<RunResult<z.infer<S>>> {
@@ -151,21 +162,38 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
   if (opts.cachedContext) system.push({ type: "text", text: opts.cachedContext, cache_control: { type: "ephemeral" } });
 
   try {
-    const stream = agent.client.messages.stream({
-      model: agent.model,
-      max_tokens: opts.maxTokens ?? 16000,
-      system,
-      messages: [{ role: "user", content: opts.input }],
-      output_config: { effort: agent.effort, format: zodOutputFormat(opts.schema) },
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: opts.input }];
+    const tools = opts.webSearch
+      ? ([{ type: "web_search_20260209", name: "web_search", max_uses: opts.webSearch.maxUses, ...(opts.webSearch.blockedDomains?.length ? { blocked_domains: opts.webSearch.blockedDomains } : {}) }] as unknown as Anthropic.ToolUnion[])
+      : undefined;
+    const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const allContent: Anthropic.ContentBlock[] = [];
+    let response: Anthropic.Message;
+    // server tools may pause a long turn; resume a bounded number of times (never an open-ended loop)
+    for (let turn = 0; ; turn++) {
+      const stream = agent.client.messages.stream({
+        model: agent.model,
+        max_tokens: opts.maxTokens ?? 16000,
+        system,
+        messages,
+        ...(tools ? { tools } : {}),
+        output_config: tools ? { effort: agent.effort } : { effort: agent.effort, format: zodOutputFormat(opts.schema) },
+      });
+      response = await stream.finalMessage();
+      const u = response.usage;
+      usage.input += u.input_tokens ?? 0;
+      usage.output += u.output_tokens ?? 0;
+      usage.cacheRead += u.cache_read_input_tokens ?? 0;
+      usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
+      allContent.push(...response.content);
+      if (response.stop_reason !== "pause_turn" || turn >= 3) break;
+      messages.push({ role: "assistant", content: response.content });
+    }
+    const searchedUrls = allContent.flatMap((b) => {
+      const blk = b as unknown as { type: string; content?: unknown };
+      if (blk.type !== "web_search_tool_result" || !Array.isArray(blk.content)) return [];
+      return (blk.content as Array<{ type: string; url?: string }>).filter((r) => r.type === "web_search_result" && r.url).map((r) => r.url!);
     });
-    const response = await stream.finalMessage();
-    const u = response.usage;
-    const usage = {
-      input: u.input_tokens ?? 0,
-      output: u.output_tokens ?? 0,
-      cacheRead: u.cache_read_input_tokens ?? 0,
-      cacheWrite: u.cache_creation_input_tokens ?? 0,
-    };
     const costUsd = estimateCostUsd(agent.model, usage);
     const base = {
       input_tokens: usage.input,
@@ -181,13 +209,18 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
       throw new GatewayError("refused", "The model declined this request.");
     }
     const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    const parsed = opts.schema.safeParse(JSON.parse(text));
+    let json: unknown;
+    try { json = tools ? extractJson(text) : JSON.parse(text); } catch {
+      await finish({ ...base, status: "invalid_output", error: "Output was not valid JSON" });
+      throw new GatewayError("invalid_output", "AI output was not valid JSON and was not saved.");
+    }
+    const parsed = opts.schema.safeParse(json);
     if (!parsed.success) {
       await finish({ ...base, status: "invalid_output", error: redact(parsed.error.message).slice(0, 2000) });
       throw new GatewayError("invalid_output", "AI output failed validation and was not saved.");
     }
     await finish({ ...base, status: "succeeded" });
-    return { data: parsed.data, executionId: exec.id, model: response.model, provider: agent.provider, costUsd };
+    return { data: parsed.data, executionId: exec.id, model: response.model, provider: agent.provider, costUsd, searchedUrls };
   } catch (err) {
     if (err instanceof GatewayError) throw err;
     let code: GatewayError["code"] = "provider_error";

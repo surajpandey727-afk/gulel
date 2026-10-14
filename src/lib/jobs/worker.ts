@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { syncGmailAccount } from "@/lib/channels/gmail-sync";
 import { classifyReply } from "@/lib/inbox/classify";
 import { redact } from "@/lib/crypto";
+import { runCampaign } from "@/lib/discovery/service";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
 
@@ -10,6 +11,7 @@ const HANDLERS: Record<string, (j: Job) => Promise<unknown>> = {
   gmail_sync: (j) => syncGmailAccount(j.workspace_id, j.payload.account_id as string),
   classify_reply: (j) => classifyReply(j.workspace_id, j.payload.conversation_message_id as string),
   followup_scan: (j) => followupScan(j.workspace_id),
+  discovery_run: (j) => runCampaign(createAdminClient(), j.workspace_id, j.payload.campaign_id as string, null, "schedule"),
 };
 
 /** Schedules recurring work idempotently (one gmail_sync per account per 5-minute slot). */
@@ -21,6 +23,11 @@ async function schedule() {
     await admin.from("jobs").upsert({ workspace_id: a.workspace_id, type: "gmail_sync", payload: { account_id: a.id }, idempotency_key: `sync:${a.id}:${slot}`, timeout_seconds: 240 }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });
   }
   const day = new Date().toISOString().slice(0, 10);
+  const week = `${new Date().getUTCFullYear()}-w${Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / (7 * 86400_000))}`;
+  const { data: camps } = await admin.from("discovery_campaigns").select("id, workspace_id, frequency").eq("status", "active").in("frequency", ["daily", "weekly"]);
+  for (const c of camps ?? []) {
+    await admin.from("jobs").upsert({ workspace_id: c.workspace_id, type: "discovery_run", payload: { campaign_id: c.id }, idempotency_key: `discovery:${c.id}:${c.frequency === "daily" ? day : week}`, timeout_seconds: 600, max_attempts: 2 }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });
+  }
   const { data: wss } = await admin.from("workspaces").select("id");
   for (const w of wss ?? []) {
     await admin.from("jobs").upsert({ workspace_id: w.id, type: "followup_scan", idempotency_key: `followups:${day}` }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });

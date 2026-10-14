@@ -13,6 +13,9 @@ import { Gauge, Meter } from "@/components/neo/gauge";
 import { EmptyState, Panel } from "@/components/neo/surface";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { DossierTabs } from "./dossier-tabs";
+import { CompaniesHouseEnrich } from "./ch-enrich";
+import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
+import { EditContactButton, EditOrganisationButton, EvidenceStatusControl } from "./dossier-edit";
 import { AddContactButton, AddEvidenceButton, OverrideButton, PrepareOutreachButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
 
 type Ev = { id: string; claim_field: string; claim_text: string; fact_type: keyof typeof FACT_TYPE_LABEL; source_name: string; source_url: string | null; published_at: string | null; retrieved_at: string; excerpt: string | null; confidence: number; is_adverse: boolean; value_numeric: number | null; value_currency: string | null; value_as_of: string | null };
@@ -44,6 +47,13 @@ function EvidenceList({ items, empty }: { items: Ev[]; empty: string }) {
   );
 }
 
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data } = await supabase.from("organisations").select("trading_name").eq("id", id).maybeSingle();
+  return { title: data?.trading_name ?? "Organisation" };
+}
+
 export default async function DossierPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
   const { id } = await params;
   const { tab = "summary" } = await searchParams;
@@ -57,7 +67,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
     supabase.from("evidence_items").select("*").eq("organisation_id", id).eq("status", "active").order("retrieved_at", { ascending: false }),
     supabase.from("organisation_financials").select("*").eq("organisation_id", id).order("period_end", { ascending: false }),
     supabase.from("organisation_news").select("*").eq("organisation_id", id).order("published_at", { ascending: false }).limit(10),
-    supabase.from("contact_organisations").select("title, role_category, buyer_relevance, contacts!inner(id, full_name, verification_status, subscriber_type, outreach_status, opted_out_at, last_interaction_at, linkedin_url, contact_channels(id, channel, value, email_quality, verification_status, verification_method))").eq("organisation_id", id).order("buyer_relevance", { ascending: false }),
+    supabase.from("contact_organisations").select("title, role_category, buyer_relevance, contacts!inner(id, full_name, market, lawful_basis, notes, verification_status, subscriber_type, outreach_status, opted_out_at, last_interaction_at, linkedin_url, contact_channels(id, channel, value, email_quality, verification_status, verification_method))").eq("organisation_id", id).order("buyer_relevance", { ascending: false }),
     supabase.from("organisation_risk_flags").select("*").eq("organisation_id", id).order("created_at", { ascending: false }),
     supabase.from("outreach_strategies").select("*").eq("organisation_id", id).order("created_at", { ascending: false }).limit(5),
     supabase.from("outreach_drafts").select("id, channel, kind, status, created_at, contacts(full_name), draft_versions!draft_versions_draft_id_fkey(subject, version_no)").eq("organisation_id", id).order("created_at", { ascending: false }),
@@ -104,6 +114,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <EditOrganisationButton org={{ id, trading_name: org.trading_name, legal_name: org.legal_name, website: org.website, registration_number: org.registration_number, primary_market: org.primary_market, sector: org.sector, sub_sector: org.sub_sector, headquarters: org.headquarters, incorporation_date: org.incorporation_date, operating_status: org.operating_status, employee_count: org.employee_count, employee_count_source: org.employee_count_source, relationship_status: org.relationship_status, description: org.description, markets: (org.organisation_market_profiles as Array<{ market: string }>).map((m) => m.market) }} />
           <AddEvidenceButton organisationId={id} currency={currency} />
           <RunQualificationButton organisationId={id} hasQualification={!!cur} />
           <PrepareOutreachButton organisationId={id} disabled={org.relationship_status === "do_not_contact"} />
@@ -183,6 +194,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
                   ["Aliases", (org.organisation_aliases as Array<{ alias: string }>).map((a) => a.alias).join(", ") || null], ["Needs", (org.needs as string[]).map((n) => n.replace(/_/g, " ")).join(", ") || null],
                 ].map(([k, v]) => <div key={k as string}><dt className="text-xs text-ink-3">{k}</dt><dd className="mt-0.5 text-ink-2">{v ?? <span className="text-ink-3">Unknown</span>}</dd></div>)}
               </dl>
+              {org.primary_market === "UK" && <div className="mt-4"><CompaniesHouseEnrich organisationId={id} configured={companiesHouseConfigured()} /></div>}
               <div className="mt-4"><EvidenceList items={byGroup("identity.").concat(byGroup("diligence."))} empty="No identity evidence yet" /></div>
             </Panel>
           </div>
@@ -226,7 +238,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
             {(people ?? []).length ? (
               <ul className="flex flex-col gap-3">
                 {(people ?? []).map((p) => {
-                  const c = p.contacts as unknown as { id: string; full_name: string; verification_status: string; subscriber_type: string; outreach_status: string; opted_out_at: string | null; linkedin_url: string | null; contact_channels: Array<{ id: string; channel: string; value: string; email_quality: EmailQuality | null; verification_status: string; verification_method: string | null }> };
+                  const c = p.contacts as unknown as { id: string; full_name: string; market: string | null; lawful_basis: string; notes: string | null; verification_status: string; subscriber_type: string; outreach_status: string; opted_out_at: string | null; linkedin_url: string | null; contact_channels: Array<{ id: string; channel: string; value: string; email_quality: EmailQuality | null; verification_status: string; verification_method: string | null }> };
                   return (
                     <li key={c.id} className="flex flex-wrap items-start justify-between gap-3 rounded-neo neo-inset-sm p-4">
                       <div className="min-w-0">
@@ -246,6 +258,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
                       <div className="flex items-center gap-2">
                         {c.opted_out_at ? <Badge tone="critical">opted out</Badge> : <SuppressButton kind="contact" value={c.id} label="Opt out" path={`/organisations/${id}`} small />}
                         <Badge tone="neutral" icon={false}>{c.subscriber_type} subscriber</Badge>
+                        <EditContactButton organisationId={id} contact={{ id: c.id, full_name: c.full_name, title: p.title, market: c.market, subscriber_type: c.subscriber_type, lawful_basis: c.lawful_basis, notes: c.notes, channels: c.contact_channels.map((ch) => ({ id: ch.id, channel: ch.channel, value: ch.value, verification_status: ch.verification_status })) }} />
                       </div>
                     </li>
                   );
@@ -304,12 +317,12 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
           <Panel title="All evidence" eyebrow="Every substantive claim with provenance" actions={<AddEvidenceButton organisationId={id} currency={currency} small />}>
             {ev.length ? (
               <Table>
-                <thead><tr><Th>Field</Th><Th>Claim</Th><Th>Type</Th><Th>Source</Th><Th>Published</Th><Th className="text-right">Conf.</Th></tr></thead>
+                <thead><tr><Th>Field</Th><Th>Claim</Th><Th>Type</Th><Th>Source</Th><Th>Published</Th><Th className="text-right">Conf.</Th><Th>Status</Th></tr></thead>
                 <tbody>{ev.map((e) => (
                   <Tr key={e.id}><Td className="whitespace-nowrap text-xs">{label(e.claim_field)}</Td><Td className="max-w-md text-ink">{e.claim_text}</Td>
                     <Td><Badge tone={e.fact_type === "reported_fact" || e.fact_type === "dated_filing" ? "neutral" : "warning"} icon={false}>{FACT_TYPE_LABEL[e.fact_type]}</Badge></Td>
                     <Td className="text-xs">{e.source_url ? <a href={e.source_url} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">{e.source_name}</a> : e.source_name}</Td>
-                    <Td className="whitespace-nowrap text-xs">{fmtDate(e.published_at)}</Td><Td className="tabular text-right">{Math.round(Number(e.confidence) * 100)}%</Td></Tr>
+                    <Td className="whitespace-nowrap text-xs">{fmtDate(e.published_at)}</Td><Td className="tabular text-right">{Math.round(Number(e.confidence) * 100)}%</Td><Td><EvidenceStatusControl evidenceId={e.id} organisationId={id} /></Td></Tr>
                 ))}</tbody>
               </Table>
             ) : <EmptyState title="No evidence yet" body="Add sourced claims. Inferences are allowed but labelled as such." />}
