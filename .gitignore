@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+!.env.example
+# licensed font source folder (copies used by the app live in public/fonts)
+/ITC Avant Garde Gothic/

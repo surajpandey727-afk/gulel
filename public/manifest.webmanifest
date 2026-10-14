@@ -1,0 +1,9 @@
+{
+  "name": "Nishaan-a OS",
+  "short_name": "Nishaan-a",
+  "start_url": "/overview",
+  "display": "standalone",
+  "background_color": "#ece8e2",
+  "theme_color": "#5c1b26",
+  "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

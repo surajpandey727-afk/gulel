@@ -1,0 +1,71 @@
+import "server-only";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { syncGmailAccount } from "@/lib/channels/gmail-sync";
+import { classifyReply } from "@/lib/inbox/classify";
+import { redact } from "@/lib/crypto";
+
+type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
+
+const HANDLERS: Record<string, (j: Job) => Promise<unknown>> = {
+  gmail_sync: (j) => syncGmailAccount(j.workspace_id, j.payload.account_id as string),
+  classify_reply: (j) => classifyReply(j.workspace_id, j.payload.conversation_message_id as string),
+  followup_scan: (j) => followupScan(j.workspace_id),
+};
+
+/** Schedules recurring work idempotently (one gmail_sync per account per 5-minute slot). */
+async function schedule() {
+  const admin = createAdminClient();
+  const slot = Math.floor(Date.now() / 300_000);
+  const { data: accounts } = await admin.from("channel_accounts").select("id, workspace_id").eq("channel", "gmail").eq("status", "connected");
+  for (const a of accounts ?? []) {
+    await admin.from("jobs").upsert({ workspace_id: a.workspace_id, type: "gmail_sync", payload: { account_id: a.id }, idempotency_key: `sync:${a.id}:${slot}`, timeout_seconds: 240 }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });
+  }
+  const day = new Date().toISOString().slice(0, 10);
+  const { data: wss } = await admin.from("workspaces").select("id");
+  for (const w of wss ?? []) {
+    await admin.from("jobs").upsert({ workspace_id: w.id, type: "followup_scan", idempotency_key: `followups:${day}` }, { onConflict: "workspace_id,type,idempotency_key", ignoreDuplicates: true });
+  }
+}
+
+export async function tick(worker = "web") {
+  await schedule().catch(() => undefined);
+  const admin = createAdminClient();
+  const { data: jobs, error } = await admin.rpc("claim_jobs", { p_worker: worker, p_limit: 5 });
+  if (error) throw new Error(error.message);
+  const results: Array<{ id: string; type: string; ok: boolean; error?: string }> = [];
+  for (const j of (jobs ?? []) as Job[]) {
+    const handler = HANDLERS[j.type];
+    try {
+      if (!handler) throw new Error(`No handler for job type ${j.type}`);
+      const result = await handler(j);
+      await admin.rpc("finish_job", { p_job_id: j.id, p_ok: true, p_result: (result ?? {}) as object, p_error: null, p_cost: 0 });
+      results.push({ id: j.id, type: j.type, ok: true });
+    } catch (e) {
+      const msg = redact((e as Error).message ?? String(e)).slice(0, 2000);
+      await admin.rpc("finish_job", { p_job_id: j.id, p_ok: false, p_result: null, p_error: msg, p_cost: 0 });
+      results.push({ id: j.id, type: j.type, ok: false, error: msg });
+    }
+  }
+  return results;
+}
+
+/** Internal reminders only — never sends. A previous approval does not authorise a follow-up. */
+async function followupScan(workspaceId: string) {
+  const admin = createAdminClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: drafts } = await admin.from("outreach_drafts").select("id, organisation_id, contact_id, conversation_id, suggested_follow_up_on, organisations(trading_name), contacts(full_name)")
+    .eq("workspace_id", workspaceId).eq("status", "sent").lte("suggested_follow_up_on", today);
+  let created = 0;
+  for (const d of drafts ?? []) {
+    const { data: conv } = await admin.from("conversations").select("last_inbound_at, status").eq("id", d.conversation_id!).maybeSingle();
+    if (!conv || conv.last_inbound_at || ["opted_out", "do_not_contact", "bounced"].includes(conv.status)) continue;
+    const { count } = await admin.from("tasks").select("id", { count: "exact", head: true }).eq("draft_id", d.id).eq("kind", "follow_up");
+    if (count) continue;
+    const org = (d.organisations as unknown as { trading_name: string } | null)?.trading_name ?? "organisation";
+    const who = (d.contacts as unknown as { full_name: string } | null)?.full_name ?? "contact";
+    await admin.from("tasks").insert({ workspace_id: workspaceId, title: `Decide on a follow-up to ${who} (${org}) — no reply yet`, kind: "follow_up", due_at: new Date().toISOString(), organisation_id: d.organisation_id, contact_id: d.contact_id, conversation_id: d.conversation_id, draft_id: d.id, source: "system" });
+    await admin.from("conversations").update({ status: "awaiting_response" }).eq("id", d.conversation_id!);
+    created++;
+  }
+  return { created };
+}
