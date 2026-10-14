@@ -5,6 +5,7 @@ import { getSession } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { MobileNav, Sidebar } from "@/components/shell/sidebar";
 import { Copilot } from "@/components/copilot/copilot";
+import { CommandPalette, SearchTrigger } from "@/components/shell/command-palette";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -26,11 +27,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-dvh">
       <Sidebar badges={badges} />
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between px-4 pt-4 lg:hidden"><span className="text-sm font-semibold tracking-tight">Nishaan-a</span><SearchTrigger compact /></div>
         <main id="main" className="mx-auto w-full max-w-[1480px] flex-1 px-4 pb-28 pt-6 md:px-8 lg:pb-10">
           {children}
         </main>
       </div>
       <MobileNav badges={badges} />
+      <CommandPalette />
       <Suspense>
         <Copilot />
       </Suspense>

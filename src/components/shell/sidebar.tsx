@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Menu } from "lucide-react";
 import { cn } from "@/components/neo/cn";
 import { MOBILE_NAV, NAV } from "./nav";
+import { SearchTrigger } from "./command-palette";
 
 export function Sidebar({ badges }: { badges: Record<string, number> }) {
   const path = usePathname();
@@ -19,6 +20,7 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
           <span className="block text-[0.65rem] uppercase tracking-[0.14em] text-ink-3">Intelligence OS</span>
         </span>
       </Link>
+      <div className="mb-3"><SearchTrigger /></div>
       {NAV.map(({ href, label, icon: Icon }) => {
         const active = path === href || path.startsWith(href + "/");
         const n = badges[href];

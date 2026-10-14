@@ -21,6 +21,7 @@ Web fonts: `bash scripts/build-fonts.sh` rebuilds `public/fonts/*.woff2` from th
 |---|---|---|
 | **Anthropic workspace ID** (`wrkspc_…`), or a workspace-scoped API key | Settings → Claude & AI providers → Rotate / edit | The supplied key is organisation-level; Anthropic rejects it without the `anthropic-workspace-id` header. Find the ID in Console → Settings → Workspaces. |
 | **Google OAuth client** (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) | `.env.local` / host env | Gmail connect, drafts, send, sync. Steps are shown in Settings → Gmail & LinkedIn. |
+| **Companies House API key** (`COMPANIES_HOUSE_API_KEY`, optional) | `.env.local` / host env | UK registry discovery and dossier enrichment. Free key from developer.company-information.service.gov.uk (choose a REST key). |
 | **Supabase database password** for project `pseaaaltdzbzlpdlsjkv` | your terminal only | To push migrations to the cloud project (see §3). The publishable and secret keys can't run DDL. |
 
 Rotate the Anthropic key and the Supabase secret key: both were shared in chat. Never paste account passwords into chats or tools.
@@ -73,8 +74,8 @@ App hosting (Vercel/Render): set every variable from `.env.example`. `SUPABASE_S
 
 ## 6. Backlog (next)
 
-1. Phase 2 discovery: campaigns + Companies House adapter + news via cited web search; scheduled discovery runs with spend caps.
-2. Follow-up draft generation from reminders (still approval-gated).
+1. India registry via a licensed MCA vendor; news API adapter; Contracts Finder tenders.
+2. Trigger monitoring on qualified organisations (re-run enrichment/search; re-qualify on material change).
 3. Gmail Pub/Sub push instead of polling (Supabase Edge Function webhook).
 4. Team roles UI (analyst / reviewer / viewer), invitations.
 5. Proposal & meeting prep briefs; win/loss capture → qualification calibration.
