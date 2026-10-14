@@ -15,6 +15,7 @@ const Patch = z.object({
   next_action: z.string().nullable().optional(),
   next_action_due: z.string().nullable().optional(),
   service: z.string().nullable().optional(),
+  proposal_status: z.enum(["not_started", "drafting", "sent", "accepted", "declined"]).nullable().optional(),
 });
 
 export async function updateOpportunityAction(id: string, patch: z.input<typeof Patch>): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -29,4 +30,14 @@ export async function updateOpportunityAction(id: string, patch: z.input<typeof 
   if (error) return { ok: false, error: error.message };
   revalidatePath("/pipeline");
   return { ok: true };
+}
+
+export async function generateBriefAction(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const s = await getSession();
+  try {
+    const { generateMeetingBrief } = await import("@/lib/outreach/followup");
+    await generateMeetingBrief(s.workspaceId, s.userId, id);
+    revalidatePath("/pipeline");
+    return { ok: true };
+  } catch (e) { return { ok: false, error: (e as Error).message }; }
 }

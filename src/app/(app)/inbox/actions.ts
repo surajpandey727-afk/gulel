@@ -85,3 +85,14 @@ export async function syncNowAction(): Promise<R> {
     return { ok: true, message: `Synced. ${inbound} new repl${inbound === 1 ? "y" : "ies"}.` };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
+
+export async function draftConversationAction(conversationId: string, kind: "follow_up" | "reply"): Promise<{ ok: true; draftId: string | null; message: string } | { ok: false; error: string }> {
+  const s = await getSession();
+  try {
+    const { draftConversationMessage } = await import("@/lib/outreach/followup");
+    const r = await draftConversationMessage(s.workspaceId, s.userId, conversationId, kind);
+    revalidatePath("/inbox");
+    revalidatePath("/tasks");
+    return { ok: true, draftId: r.draftId, message: r.draftId ? "Draft prepared — it needs its own approval." : `${r.decision === "stop" ? "No further message advised" : "Too soon to follow up"}: ${r.rationale}` };
+  } catch (e) { return { ok: false, error: (e as Error).message }; }
+}

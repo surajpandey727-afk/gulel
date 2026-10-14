@@ -10,7 +10,7 @@ import { Badge, MarketBadge } from "@/components/neo/badge";
 import { EmptyState, Surface } from "@/components/neo/surface";
 import { cn } from "@/components/neo/cn";
 import { REPLY_CATEGORIES, REPLY_LABEL } from "@/lib/ai/agents/classifier";
-import { addNoteAction, logManualReplyAction, reviewClassificationAction, setConversationStatusAction, syncNowAction } from "./actions";
+import { addNoteAction, draftConversationAction, logManualReplyAction, reviewClassificationAction, setConversationStatusAction, syncNowAction } from "./actions";
 
 export interface ConvRow { id: string; channel: string; status: string; subject: string | null; market: string | null; latest_classification: string | null; needs_review: boolean; last_outbound_at: string | null; last_inbound_at: string | null; updated_at: string; organisations: { id: string; trading_name: string; primary_market: string } | null; contacts: { id: string; full_name: string } | null }
 export interface Thread {
@@ -132,6 +132,12 @@ export function InboxView({ rows, thread, seg, ch, market, gmail }: { rows: Conv
                   {Array.from(new Set([thread.conv.status, ...STATUSES])).map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
                 </Select></Field>
                 <p className="text-[0.7rem] text-ink-3">A reply is not necessarily positive; a meeting is not a win. Moving to “opportunity” creates a pipeline record.</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" loading={pending} onClick={() => start(async () => { const r = await draftConversationAction(thread.conv.id, thread.conv.last_inbound_at ? "reply" : "follow_up"); if (!r.ok) setMsg(`⚠ ${r.error}`); else if (r.draftId) router.push(`/outreach/${r.draftId}`); else setMsg(r.message); })}>
+                    {thread.conv.last_inbound_at ? "Draft reply" : "Draft follow-up"}
+                  </Button>
+                </div>
+                <p className="text-[0.7rem] text-ink-3">Prepared as a new draft that needs its own approval.</p>
               </Surface>
               <Surface className="flex flex-col gap-3 p-4">
                 <p className="eyebrow flex items-center gap-1.5"><StickyNote className="h-3.5 w-3.5" /> Internal notes</p>
