@@ -32,6 +32,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <main id="main" className="mx-auto w-full max-w-[1480px] flex-1 px-4 pb-28 pt-6 md:px-8 lg:pb-10">
           {children}
         </main>
+        <footer className="hidden items-center justify-center gap-2 py-4 text-ink-3 lg:flex">
+          <span className="text-[0.6rem] tracking-wide">powered by</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/nishaan-a-mark.webp" alt="nishaan-a" className="h-6" style={{ objectFit: "contain" }} />
+        </footer>
       </div>
       <MobileNav badges={badges} />
       <CommandPalette />

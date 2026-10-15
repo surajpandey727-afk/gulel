@@ -16,7 +16,7 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
         <GulelMark size={40} className="shrink-0 rounded-[8px]" />
         <span className="leading-tight">
           <span className="block text-[0.95rem] font-semibold tracking-tight">gulel</span>
-          <span className="block text-[0.65rem] uppercase tracking-[0.14em] text-ink-3">for nishaan-a</span>
+          <span className="block text-[0.65rem] tracking-[0.14em] text-ink-3">for nishaan-a</span>
         </span>
       </Link>
       <div className="mb-3"><SearchTrigger /></div>
