@@ -1,0 +1,65 @@
+{
+  "typography": {
+    "family": "ITC Avant Garde Gothic (local woff2)",
+    "weights": [
+      400,
+      500,
+      600,
+      700
+    ]
+  },
+  "color": {
+    "light": {
+      "brand": "#071E07 (Sacramento)",
+      "onAccent": "#FAF1CA (Buttercream)",
+      "ivory": "#f7f3ea",
+      "canvas": "#ece8e2",
+      "charts": [
+        "#071E07",
+        "#2f5d3a",
+        "#a69c8f",
+        "#5c7a4a"
+      ]
+    },
+    "dark": {
+      "brand": "#3E000C (Oxblood) fills, #FAF1CA foreground",
+      "canvas": "#17120f",
+      "charts": [
+        "#FAF1CA",
+        "#d9b48a",
+        "#a88b8f",
+        "#8f8676"
+      ]
+    },
+    "semantic": {
+      "positive": "brand + check icon",
+      "warning": "#8a5a1f / #e0b267",
+      "danger": "#7a1020 / #e58a94",
+      "rule": "never colour-only; pair with icon+label"
+    },
+    "excluded": [
+      "lavender/lilac #CBB9D8",
+      "arbitrary greens in dark",
+      "library-default chart palettes"
+    ]
+  },
+  "elevation": {
+    "model": "restrained neumorphism, Level 0-4",
+    "tokens": [
+      "--raise-sm",
+      "--raise-md",
+      "--raise-lg",
+      "--raise-pop",
+      "--inset-sm",
+      "--inset-md",
+      "--raise-accent",
+      "--card-edge"
+    ],
+    "darkRule": "sculpted from surface via luminance; no glow, no bright border, no coloured halo"
+  },
+  "radius": {
+    "card": "20-22px",
+    "control": "999px pill",
+    "chip": "10-14px"
+  }
+}

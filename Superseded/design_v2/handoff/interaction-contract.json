@@ -1,0 +1,91 @@
+{
+  "nav": {
+    "accordionGroups": [
+      "prospecting",
+      "outreach",
+      "revenue",
+      "workspace"
+    ],
+    "overviewAlwaysVisible": true,
+    "behaviour": "expand/collapse; selecting a child routes and keeps group open"
+  },
+  "themeToggle": {
+    "states": [
+      "light",
+      "dark"
+    ],
+    "light": "Sacramento green brand",
+    "dark": "Oxblood maroon + buttercream",
+    "persists": "state only (prototype)"
+  },
+  "orgClick": {
+    "trigger": [
+      "overview table row",
+      "organisation card"
+    ],
+    "opens": "Quick View drawer",
+    "contains": [
+      "identity",
+      "firm-fit score",
+      "score breakdown",
+      "decision-makers",
+      "evidence",
+      "actions"
+    ],
+    "actions": [
+      "Full firm profile",
+      "Taftish research",
+      "Chanakya eval",
+      "Contacts",
+      "Doot outreach",
+      "Ask Sutradhar",
+      "Chitragupta log"
+    ]
+  },
+  "approvalQueueItem": {
+    "click": "routes to Approvals",
+    "inlineButtons": [
+      "approve",
+      "reject"
+    ]
+  },
+  "outreachRecipient": {
+    "control": "To: picker",
+    "source": "org contacts from DB",
+    "shows": [
+      "name",
+      "role",
+      "email",
+      "verification"
+    ],
+    "action": "select recipient"
+  },
+  "attachments": {
+    "add": "appends sample file chip",
+    "remove": "per-chip X",
+    "display": "ext badge + filename"
+  },
+  "agent": {
+    "modes": [
+      "compact FAB",
+      "expanded side panel"
+    ],
+    "specialists": [
+      "Sutradhar",
+      "Taftish",
+      "Chanakya",
+      "Doot",
+      "Mariyada",
+      "Chitragupta"
+    ],
+    "responses": "structured native elements (no raw markdown)"
+  },
+  "charts": {
+    "tokens": [
+      "--chart-1..4",
+      "--chart-grid"
+    ],
+    "themeAware": true,
+    "note": "no green in dark; oxblood marks never on indistinguishable dark oxblood"
+  }
+}
