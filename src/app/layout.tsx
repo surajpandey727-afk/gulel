@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: { default: "gulel — for nishaan-a", template: "%s · gulel" },
   description: "Commercial intelligence & outreach operating system",
   manifest: "/manifest.webmanifest",
+  icons: { icon: "/icons/monogram.png", apple: "/icons/monogram.png" },
   robots: { index: false, follow: false },
 };
 
