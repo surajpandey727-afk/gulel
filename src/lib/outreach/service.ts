@@ -61,7 +61,7 @@ export async function prepareOutreach(workspaceId: string, userId: string, organ
   const { version: voice } = await getActiveVoice(workspaceId);
   const gmail = await connectedGmail(workspaceId);
   const res = await runStructured({
-    workspaceId, agent: "governance", system: GOVERNANCE_SYSTEM, schema: GovernanceSchema, userId, maxTokens: 16000,
+    workspaceId, agent: "doot", system: GOVERNANCE_SYSTEM, schema: GovernanceSchema, userId, maxTokens: 16000,
     entity: { type: "organisation", id: organisationId },
     cachedContext: voicePromptBlock(voice),
     input: [
@@ -185,7 +185,7 @@ export async function refineDraft(workspaceId: string, userId: string, draftId: 
   const { data: evidence } = await supabase.from("evidence_items").select("id, claim_text, source_name, published_at, fact_type").in("id", v.supporting_evidence_ids.length ? v.supporting_evidence_ids : ["00000000-0000-0000-0000-000000000000"]);
   const { version: voice } = await getActiveVoice(workspaceId);
   const res = await runStructured({
-    workspaceId, agent: "governance", system: REFINE_SYSTEM, schema: RefineSchema, userId, maxTokens: 6000,
+    workspaceId, agent: "doot", system: REFINE_SYSTEM, schema: RefineSchema, userId, maxTokens: 6000,
     entity: { type: "outreach_draft", id: draftId }, cachedContext: voicePromptBlock(voice),
     input: [
       `Requested change: ${REFINE_ACTIONS[action]}`,
@@ -214,7 +214,7 @@ export async function switchChannel(workspaceId: string, userId: string, draftId
   const gmail = channel === "gmail" ? await connectedGmail(workspaceId) : null;
   const { version: voice } = await getActiveVoice(workspaceId);
   const res = await runStructured({
-    workspaceId, agent: "governance", system: REFINE_SYSTEM, schema: RefineSchema, userId, maxTokens: 6000, cachedContext: voicePromptBlock(voice),
+    workspaceId, agent: "doot", system: REFINE_SYSTEM, schema: RefineSchema, userId, maxTokens: 6000, cachedContext: voicePromptBlock(voice),
     input: [`Requested change: Adapt this message for ${channel === "gmail" ? "email (add a short subject line)" : "a LinkedIn message (no subject, under 120 words)"}, keeping the same objective and evidence.`, untrusted("current_draft", { subject: v.subject, body: v.body })].join("\n\n"),
   });
   const { data: nd } = await supabase.from("outreach_drafts").insert({ workspace_id: workspaceId, organisation_id: d.organisation_id, contact_id: d.contact_id, strategy_id: d.strategy_id, channel, kind: channel === "linkedin" ? "linkedin_message" : "cold", suggested_follow_up_on: d.suggested_follow_up_on, created_by: userId }).select("id").single();

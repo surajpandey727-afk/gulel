@@ -73,7 +73,7 @@ export async function runQualification(workspaceId: string, userId: string, orga
   }
 
   const res = await runStructured({
-    workspaceId, agent: "discovery", system: QUALIFICATION_SYSTEM, schema: QualificationAssessmentSchema, userId,
+    workspaceId, agent: "taftish", system: QUALIFICATION_SYSTEM, schema: QualificationAssessmentSchema, userId,
     entity: { type: "organisation", id: organisationId }, maxTokens: 12000,
     input: [
       `Today is ${new Date().toISOString().slice(0, 10)}. Assess this organisation.`,

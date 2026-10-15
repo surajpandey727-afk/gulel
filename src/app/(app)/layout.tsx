@@ -7,6 +7,7 @@ import { GulelMark } from "@/components/brand/gulel-mark";
 import { MobileNav, Sidebar } from "@/components/shell/sidebar";
 import { Copilot } from "@/components/copilot/copilot";
 import { CommandPalette, SearchTrigger } from "@/components/shell/command-palette";
+import { ThemeProvider } from "@/components/shell/theme-provider";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -25,24 +26,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const badges = { "/approvals": approvals.count ?? 0, "/inbox": inbox.count ?? 0 };
   return (
-    <div className="flex min-h-dvh">
-      <Sidebar badges={badges} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between px-4 pt-4 lg:hidden"><span className="flex items-center gap-2"><GulelMark size={24} className="rounded-[5px]" /><span className="text-sm font-semibold tracking-tight">gulel</span></span><SearchTrigger compact /></div>
-        <main id="main" className="mx-auto w-full max-w-[1480px] flex-1 px-4 pb-28 pt-6 md:px-8 lg:pb-10">
-          {children}
-        </main>
-        <footer className="hidden items-center justify-center gap-2 py-4 text-ink-3 lg:flex">
-          <span className="text-[0.6rem] tracking-wide">powered by</span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icons/nishaan-a-mark.webp" alt="nishaan-a" className="h-6" style={{ objectFit: "contain" }} />
-        </footer>
+    <ThemeProvider>
+      <div className="flex min-h-dvh">
+        <Sidebar badges={badges} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-center justify-between px-4 pt-4 lg:hidden"><span className="flex items-center gap-2"><GulelMark size={24} className="rounded-[5px]" /><span className="text-sm font-semibold tracking-tight">gulel</span></span><SearchTrigger compact /></div>
+          <main id="main" className="mx-auto w-full max-w-[1480px] flex-1 px-4 pb-28 pt-6 md:px-8 lg:pb-10">
+            {children}
+          </main>
+          <footer className="hidden items-center justify-center gap-2 py-4 text-ink-3 lg:flex">
+            <span className="text-[0.6rem] tracking-wide">powered by</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/nishaan-a-mark.webp" alt="nishaan-a" className="h-6" style={{ objectFit: "contain" }} />
+          </footer>
+        </div>
+        <MobileNav badges={badges} />
+        <CommandPalette />
+        <Suspense>
+          <Copilot />
+        </Suspense>
       </div>
-      <MobileNav badges={badges} />
-      <CommandPalette />
-      <Suspense>
-        <Copilot />
-      </Suspense>
-    </div>
+    </ThemeProvider>
   );
 }

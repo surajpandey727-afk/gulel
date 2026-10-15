@@ -34,7 +34,7 @@ export async function buildSnapshot(workspaceId: string) {
 export async function askAnalyst(workspaceId: string, userId: string, question: string): Promise<{ insightId: string; answer: AnalystOutput; model: string }> {
   const snapshot = await buildSnapshot(workspaceId);
   const res = await runStructured({
-    workspaceId, agent: "analyst", system: ANALYST_SYSTEM, schema: AnalystSchema, userId, maxTokens: 8000,
+    workspaceId, agent: "chanakya", system: ANALYST_SYSTEM, schema: AnalystSchema, userId, maxTokens: 8000,
     input: `Question from the founder: ${question}\n\nDatabase snapshot (the only data you may use):\n${untrusted("database_snapshot", snapshot)}`,
   });
   // Only keep record links that actually exist in the snapshot.

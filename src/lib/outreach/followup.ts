@@ -35,7 +35,7 @@ export async function draftConversationMessage(workspaceId: string, userId: stri
 
   const { version: voice } = await getActiveVoice(workspaceId);
   const res = await runStructured({
-    workspaceId, agent: "governance", system: FOLLOWUP_SYSTEM.replace("{{kind}}", kind === "reply" ? "reply" : "follow-up"), schema: FollowUpSchema, userId, maxTokens: 6000,
+    workspaceId, agent: "doot", system: FOLLOWUP_SYSTEM.replace("{{kind}}", kind === "reply" ? "reply" : "follow-up"), schema: FollowUpSchema, userId, maxTokens: 6000,
     entity: { type: "conversation", id: conversationId }, cachedContext: voicePromptBlock(voice),
     input: [
       `Today is ${new Date().toISOString().slice(0, 10)}. Channel: ${conv.channel === "gmail" ? "email" : "LinkedIn message"}. Kind: ${kind}.`,
@@ -70,7 +70,7 @@ export async function generateMeetingBrief(workspaceId: string, userId: string, 
   const { data: msgs } = opp.conversation_id ? await supabase.from("conversation_messages").select("direction, body_text, snippet, occurred_at").eq("conversation_id", opp.conversation_id).order("occurred_at") : { data: [] };
   const { data: notes } = await supabase.from("notes").select("body, created_at").eq("organisation_id", opp.organisation_id);
   const res = await runStructured({
-    workspaceId, agent: "analyst", system: BRIEF_SYSTEM, schema: BriefSchema, userId, maxTokens: 8000, entity: { type: "opportunity", id: opportunityId },
+    workspaceId, agent: "chanakya", system: BRIEF_SYSTEM, schema: BriefSchema, userId, maxTokens: 8000, entity: { type: "opportunity", id: opportunityId },
     input: [untrusted("dossier", pkg), untrusted("conversation", msgs ?? []), untrusted("internal_notes", notes ?? []), `Opportunity: ${opp.name}${opp.service ? ` · service ${opp.service}` : ""}`].join("\n\n"),
   });
   const valid = new Set(pkg.evidence.map((e) => e.id));

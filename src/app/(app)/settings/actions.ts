@@ -98,7 +98,7 @@ export async function revokeProviderKeyAction(id: string): Promise<R> {
   } catch (e) { return fail(e); }
 }
 
-const AgentCfg = z.object({ agent: z.enum(["discovery", "governance", "analyst", "voice", "classifier", "fidelity"]), model: z.string(), effort: z.enum(["low", "medium", "high", "xhigh", "max"]), monthly_budget_usd: z.number().min(0).max(10000), on_budget_exhausted: z.enum(["pause", "warn"]), connection_id: z.string().uuid().nullable() });
+const AgentCfg = z.object({ agent: z.enum(["taftish", "doot", "chanakya", "sutradhar", "mariyada", "chitragupta", "voice", "classifier", "fidelity"]), model: z.string(), effort: z.enum(["low", "medium", "high", "xhigh", "max"]), monthly_budget_usd: z.number().min(0).max(10000), on_budget_exhausted: z.enum(["pause", "warn"]), connection_id: z.string().uuid().nullable() });
 export async function saveAgentConfigAction(input: z.input<typeof AgentCfg>): Promise<R> {
   try {
     const s = await owner();

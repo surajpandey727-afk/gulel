@@ -8,12 +8,15 @@ export const CLAUDE_MODELS = {
 export type ClaudeModel = keyof typeof CLAUDE_MODELS;
 
 export const AGENTS = {
-  discovery: { label: "Discovery AI", purpose: "Find, validate and enrich opportunities", prohibited: "Sending or preparing outbound messages" },
-  governance: { label: "Governance AI", purpose: "Evaluate outreach suitability and draft communications", prohibited: "Sending without explicit human approval" },
-  analyst: { label: "Intelligence Analyst", purpose: "Explain trends, pipeline and next actions", prohibited: "Modifying records or sending messages" },
-  voice: { label: "Voice DNA", purpose: "Extract and maintain the founder's writing profile", prohibited: "Any external action" },
-  classifier: { label: "Reply classifier", purpose: "Propose reply categories for human review", prohibited: "Changing pipeline state without review" },
-  fidelity: { label: "Voice Fidelity", purpose: "Independently score drafts against the founder's voice profile", prohibited: "Any external action or draft modification" },
+  taftish:     { label: "Taftish",     purpose: "Find, validate and enrich opportunities via deep research", prohibited: "Sending or preparing outbound messages" },
+  doot:        { label: "Doot",        purpose: "Draft, refine and deliver outreach communications", prohibited: "Sending without explicit human approval" },
+  chanakya:    { label: "Chanakya",    purpose: "Evaluate intelligence, pipeline trends and strategic next actions", prohibited: "Modifying records or sending messages" },
+  sutradhar:   { label: "Sutradhar",   purpose: "Orchestrate agents and answer founder queries across the system", prohibited: "Any external action without delegation to the appropriate specialist" },
+  mariyada:    { label: "Mariyada",    purpose: "Enforce governance, compliance and approval policies", prohibited: "Overriding human approval decisions" },
+  chitragupta: { label: "Chitragupta", purpose: "Audit trail, memory and system-wide accountability logging", prohibited: "Any external action or record modification" },
+  voice:       { label: "Voice DNA",   purpose: "Extract and maintain the founder's writing profile", prohibited: "Any external action" },
+  classifier:  { label: "Reply classifier", purpose: "Propose reply categories for human review", prohibited: "Changing pipeline state without review" },
+  fidelity:    { label: "Voice Fidelity", purpose: "Independently score drafts against the founder's voice profile", prohibited: "Any external action or draft modification" },
 } as const;
 export type AgentKey = keyof typeof AGENTS;
 

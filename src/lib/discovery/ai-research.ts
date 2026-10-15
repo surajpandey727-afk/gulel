@@ -45,7 +45,7 @@ export interface ResearchBrief {
 
 export async function aiWebResearch(workspaceId: string, userId: string | null, brief: ResearchBrief) {
   const res = await runStructured({
-    workspaceId, agent: "discovery", system: SYSTEM, schema: ResearchCandidatesSchema, userId, maxTokens: 12000,
+    workspaceId, agent: "taftish", system: SYSTEM, schema: ResearchCandidatesSchema, userId, maxTokens: 12000,
     webSearch: { maxUses: Math.min(8, Math.max(2, Math.ceil(brief.limit / 3))) },
     input: [
       `Today is ${new Date().toISOString().slice(0, 10)}. Find up to ${brief.limit} candidate organisations.`,
