@@ -44,7 +44,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
       </Panel>
 
       <Panel title="LinkedIn" eyebrow="Permission-aware · manual handoff">
-        <p className="text-sm text-ink-2">LinkedIn does not offer an authorised messaging API for this use. Nishaan-a OS prepares and approves LinkedIn drafts, then you copy the message, open the profile, send it yourself and confirm. Replies are logged manually. No scraping, session automation or mass messaging.</p>
+        <p className="text-sm text-ink-2">LinkedIn does not offer an authorised messaging API for this use. gulel prepares and approves LinkedIn drafts, then you copy the message, open the profile, send it yourself and confirm. Replies are logged manually. No scraping, session automation or mass messaging.</p>
         <div className="mt-3"><StatusBadge status="permission_restricted" label="manual handoff only" /></div>
       </Panel>
 

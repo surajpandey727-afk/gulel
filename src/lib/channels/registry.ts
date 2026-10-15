@@ -35,6 +35,6 @@ export const CHANNELS: Record<"gmail" | "linkedin", ChannelCapabilities> = {
     canTrackDelivery: false,
     canLogManually: true,
     requiresHumanHandoff: true,
-    notes: "No authorised messaging API. Drafts live in Nishaan-a OS; you copy, open the profile, send yourself and confirm. No scraping or automation.",
+    notes: "No authorised messaging API. Drafts live in gulel; you copy, open the profile, send yourself and confirm. No scraping or automation.",
   },
 };

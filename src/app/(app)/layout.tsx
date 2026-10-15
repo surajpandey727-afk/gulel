@@ -27,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-dvh">
       <Sidebar badges={badges} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between px-4 pt-4 lg:hidden"><span className="text-sm font-semibold tracking-tight">Nishaan-a</span><SearchTrigger compact /></div>
+        <div className="flex items-center justify-between px-4 pt-4 lg:hidden"><span className="text-sm font-semibold tracking-tight">gulel</span><SearchTrigger compact /></div>
         <main id="main" className="mx-auto w-full max-w-[1480px] flex-1 px-4 pb-28 pt-6 md:px-8 lg:pb-10">
           {children}
         </main>

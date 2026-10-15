@@ -3,7 +3,7 @@ import { avantGarde } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Nishaan-a OS", template: "%s · Nishaan-a OS" },
+  title: { default: "gulel — for nishaan-a", template: "%s · gulel" },
   description: "Commercial intelligence & outreach operating system",
   manifest: "/manifest.webmanifest",
   robots: { index: false, follow: false },

@@ -11,13 +11,13 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
   const path = usePathname();
   return (
     <nav aria-label="Primary" className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col gap-1 overflow-y-auto px-4 py-5 lg:flex">
-      <Link href="/overview" className="mb-5 flex items-center gap-3 px-2" aria-label="Nishaan-a OS home">
+      <Link href="/overview" className="mb-5 flex items-center gap-3 px-2" aria-label="gulel home">
         <span className="grid h-10 w-10 place-items-center rounded-full neo-accent">
           <span className="h-3.5 w-3.5 rounded-full border-[2.5px] border-ivory" />
         </span>
         <span className="leading-tight">
-          <span className="block text-[0.95rem] font-semibold tracking-tight">Nishaan-a</span>
-          <span className="block text-[0.65rem] uppercase tracking-[0.14em] text-ink-3">Intelligence OS</span>
+          <span className="block text-[0.95rem] font-semibold tracking-tight">gulel</span>
+          <span className="block text-[0.65rem] uppercase tracking-[0.14em] text-ink-3">for nishaan-a</span>
         </span>
       </Link>
       <div className="mb-3"><SearchTrigger /></div>

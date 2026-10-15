@@ -12,7 +12,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <span className="h-6 w-6 rounded-full border-[3px] border-ivory" />
           </span>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Nishaan-a OS</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">gulel</h1>
+            <p className="text-xs tracking-widest uppercase text-ink-3 mt-0.5">for nishaan-a</p>
             <p className="mt-1 text-sm text-ink-3">AI researches and prepares. You authorise and communicate.</p>
           </div>
         </div>
