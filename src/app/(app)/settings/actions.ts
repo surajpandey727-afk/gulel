@@ -8,7 +8,7 @@ import { decryptSecret, encryptSecret, maskSecret } from "@/lib/crypto";
 import { testConnection } from "@/lib/ai/gateway";
 import { CLAUDE_MODELS } from "@/lib/ai/models";
 import { validateWeights } from "@/lib/scoring/model";
-import { extractVoice, rollbackVoice, addPreference } from "@/lib/voice/service";
+import { extractVoice, rollbackVoice, addPreference, saveManualDna } from "@/lib/voice/service";
 import { tick } from "@/lib/jobs/worker";
 
 type R<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
@@ -73,7 +73,10 @@ export async function toggleProviderAction(id: string, enabled: boolean): Promis
     const admin = createAdminClient();
     const { data: c } = await admin.from("provider_connections").select("provider").eq("id", id).eq("workspace_id", s.workspaceId).single();
     if (!c) return { ok: false, error: "Not found" };
-    if (enabled && c.provider !== "anthropic") return { ok: false, error: "Non-Claude providers cannot be enabled for execution in this build." };
+    if (enabled && c.provider !== "anthropic") {
+      const { data: conn } = await admin.from("provider_connections").select("base_url").eq("id", id).single();
+      if (!conn?.base_url) return { ok: false, error: "Non-Anthropic providers need a base URL configured before they can be enabled." };
+    }
     await admin.from("provider_connections").update({ is_enabled: enabled, status: enabled ? undefined : "disabled" }).eq("id", id).eq("workspace_id", s.workspaceId);
     await admin.from("audit_logs").insert({ workspace_id: s.workspaceId, actor_type: "user", actor_id: s.userId, action: enabled ? "provider.enabled" : "provider.disabled", entity_type: "provider_connection", entity_id: id });
     revalidatePath("/settings/providers");
@@ -95,7 +98,7 @@ export async function revokeProviderKeyAction(id: string): Promise<R> {
   } catch (e) { return fail(e); }
 }
 
-const AgentCfg = z.object({ agent: z.enum(["discovery", "governance", "analyst", "voice", "classifier"]), model: z.string(), effort: z.enum(["low", "medium", "high", "xhigh", "max"]), monthly_budget_usd: z.number().min(0).max(10000), on_budget_exhausted: z.enum(["pause", "warn"]), connection_id: z.string().uuid().nullable() });
+const AgentCfg = z.object({ agent: z.enum(["discovery", "governance", "analyst", "voice", "classifier", "fidelity"]), model: z.string(), effort: z.enum(["low", "medium", "high", "xhigh", "max"]), monthly_budget_usd: z.number().min(0).max(10000), on_budget_exhausted: z.enum(["pause", "warn"]), connection_id: z.string().uuid().nullable() });
 export async function saveAgentConfigAction(input: z.input<typeof AgentCfg>): Promise<R> {
   try {
     const s = await owner();
@@ -177,9 +180,18 @@ export async function addSampleAction(kind: string, body: string): Promise<R> {
     const s = await getSession();
     if (body.trim().length < 20) return { ok: false, error: "Samples need at least 20 characters." };
     const supabase = await createClient();
-    await supabase.from("writing_samples").insert({ workspace_id: s.workspaceId, kind, body: body.trim(), is_negative: kind === "dislike", created_by: s.userId });
+    const { ciphertext } = encryptSecret(body.trim());
+    await supabase.from("writing_samples").insert({ workspace_id: s.workspaceId, kind, body: ciphertext, is_negative: kind === "dislike", is_encrypted: true, created_by: s.userId });
     revalidatePath("/settings/voice");
     return { ok: true, message: "Sample saved. Re-extract to fold it into the profile." };
+  } catch (e) { return fail(e); }
+}
+export async function saveManualDnaAction(dna: Record<string, unknown>): Promise<R> {
+  try {
+    const s = await owner();
+    const r = await saveManualDna(s.workspaceId, s.userId, dna);
+    revalidatePath("/settings/voice");
+    return { ok: true, message: `Manual DNA v${r.versionNo} saved and active.` };
   } catch (e) { return fail(e); }
 }
 export async function deleteSampleAction(id: string): Promise<R> {

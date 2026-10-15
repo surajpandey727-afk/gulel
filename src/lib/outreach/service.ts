@@ -4,7 +4,7 @@ import { runStructured } from "@/lib/ai/gateway";
 import { GOVERNANCE_SYSTEM, GovernanceSchema, REFINE_ACTIONS, REFINE_SYSTEM, RefineSchema, type RefineAction } from "@/lib/ai/agents/governance";
 import { untrusted } from "@/lib/ai/agents/shared";
 import { buildEvidencePackage, type EvidencePackage } from "@/lib/qualification/service";
-import { getActiveVoice, voicePromptBlock } from "@/lib/voice/service";
+import { getActiveVoice, voicePromptBlock, evaluateFidelity } from "@/lib/voice/service";
 import { evaluateCompliance } from "@/lib/compliance";
 import { buildMime, gmailConfigured, upsertDraft } from "@/lib/channels/gmail";
 
@@ -115,6 +115,9 @@ export async function prepareOutreach(workspaceId: string, userId: string, organ
     created_by: userId,
   }).select("id").single();
 
+  // Run independent fidelity evaluation (uses haiku — fast and cheap)
+  const fidelity = await evaluateFidelity(workspaceId, userId, g.draft.body, voice).catch(() => null);
+
   await supabase.from("draft_versions").insert({
     workspace_id: workspaceId, draft_id: draft!.id, version_no: 1, channel,
     sending_account_id: channel === "gmail" ? gmail?.id ?? null : null,
@@ -128,6 +131,7 @@ export async function prepareOutreach(workspaceId: string, userId: string, organ
       brief: { why_company: g.draft.why_company, why_individual: g.draft.why_individual, business_issue: g.draft.business_issue, contribution: g.draft.contribution, rationale: g.draft.rationale, next_action: g.draft.next_action },
       recipient_justification: g.recipient_justification,
       model: res.model,
+      ...(fidelity ? { fidelity_score: fidelity.tone_match, fidelity_notes: fidelity.specific_issues, fidelity_assessment: fidelity.overall_assessment, fidelity_dimensions: fidelity.dimension_scores } : {}),
     },
     created_by: userId,
   });

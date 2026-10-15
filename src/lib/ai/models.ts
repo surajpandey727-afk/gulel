@@ -13,6 +13,7 @@ export const AGENTS = {
   analyst: { label: "Intelligence Analyst", purpose: "Explain trends, pipeline and next actions", prohibited: "Modifying records or sending messages" },
   voice: { label: "Voice DNA", purpose: "Extract and maintain the founder's writing profile", prohibited: "Any external action" },
   classifier: { label: "Reply classifier", purpose: "Propose reply categories for human review", prohibited: "Changing pipeline state without review" },
+  fidelity: { label: "Voice Fidelity", purpose: "Independently score drafts against the founder's voice profile", prohibited: "Any external action or draft modification" },
 } as const;
 export type AgentKey = keyof typeof AGENTS;
 

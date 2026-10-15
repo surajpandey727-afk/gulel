@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { extractVoice } from "@/lib/voice/service";
 import { GatewayError } from "@/lib/ai/gateway";
+import { encryptSecret } from "@/lib/crypto";
 
 const SampleInput = z.object({
   kind: z.enum(["email", "linkedin", "introduction", "observation", "proposal", "principles", "dislike", "other"]),
@@ -29,7 +30,10 @@ export async function submitVoiceSamples(samples: Array<z.input<typeof SampleInp
   const seen = new Set((existing ?? []).map((e) => e.body.trim()));
   const fresh = parsed.data.filter((s) => !seen.has(s.body.trim()));
   const { error } = fresh.length ? await supabase.from("writing_samples").insert(
-    fresh.map((s) => ({ workspace_id: session.workspaceId, kind: s.kind, title: s.title || null, body: s.body, is_negative: s.kind === "dislike", created_by: session.userId })),
+    fresh.map((s) => {
+      const { ciphertext } = encryptSecret(s.body);
+      return { workspace_id: session.workspaceId, kind: s.kind, title: s.title || null, body: ciphertext, is_negative: s.kind === "dislike", is_encrypted: true, created_by: session.userId };
+    }),
   ) : { error: null };
   if (error) return { ok: false, message: error.message };
 

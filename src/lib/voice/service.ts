@@ -1,7 +1,9 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { runStructured, GatewayError } from "@/lib/ai/gateway";
+import { decryptSecret } from "@/lib/crypto";
 import { PREFERENCE_SYSTEM, PreferenceSchema, VOICE_SYSTEM, VoiceExtractionSchema } from "@/lib/ai/agents/voice";
+import { FIDELITY_SYSTEM, FidelitySchema, type FidelityResult } from "@/lib/ai/agents/fidelity";
 import { untrusted } from "@/lib/ai/agents/shared";
 
 export interface VoiceVersion {
@@ -51,8 +53,9 @@ async function activate(profileId: string, versionId: string) {
 
 export async function extractVoice(workspaceId: string, userId: string) {
   const supabase = await createClient();
-  const { data: samples } = await supabase.from("writing_samples").select("id, kind, title, body, is_negative").eq("workspace_id", workspaceId).is("deleted_at", null).order("created_at");
-  if (!samples?.length) throw new Error("Add at least one writing sample first.");
+  const { data: rawSamples } = await supabase.from("writing_samples").select("id, kind, title, body, is_negative, is_encrypted").eq("workspace_id", workspaceId).is("deleted_at", null).order("created_at");
+  if (!rawSamples?.length) throw new Error("Add at least one writing sample first.");
+  const samples = rawSamples.map((s) => ({ ...s, body: s.is_encrypted ? decryptSecret(s.body) : s.body }));
   const positive = samples.filter((s) => !s.is_negative);
   if (!positive.length) throw new Error("Add at least one sample of your own writing (not only examples you dislike).");
 
@@ -106,6 +109,36 @@ export async function rollbackVoice(workspaceId: string, userId: string, targetV
     dna: t.dna, generation_prompt: t.generation_prompt, examples: t.examples, preferences: t.preferences, sample_ids: t.sample_ids, created_by: userId,
   }).select("id").single();
   if (v) await activate(profileId, v.id);
+}
+
+/** Independent post-generation fidelity evaluation. Called after a draft is produced. */
+export async function evaluateFidelity(workspaceId: string, userId: string, draftBody: string, voiceVersion: VoiceVersion): Promise<FidelityResult | null> {
+  try {
+    const res = await runStructured({
+      workspaceId, agent: "fidelity", system: FIDELITY_SYSTEM, schema: FidelitySchema, userId, maxTokens: 4000,
+      cachedContext: voicePromptBlock(voiceVersion),
+      input: untrusted("draft_to_evaluate", draftBody),
+    });
+    return res.data;
+  } catch (e) {
+    if (e instanceof GatewayError) return null;
+    throw e;
+  }
+}
+
+/** Save a manual DNA edit as a new immutable version. */
+export async function saveManualDna(workspaceId: string, userId: string, dna: Record<string, unknown>) {
+  const supabase = await createClient();
+  const { profileId, version } = await getActiveVoice(workspaceId);
+  const versionNo = await nextVersionNo(profileId);
+  const { data: v, error } = await supabase.from("voice_profile_versions").insert({
+    workspace_id: workspaceId, profile_id: profileId, version_no: versionNo, source: "manual",
+    dna, generation_prompt: version.generation_prompt, examples: version.examples, preferences: version.preferences,
+    created_by: userId,
+  }).select("id").single();
+  if (error || !v) throw new Error(error?.message ?? "Could not save voice version");
+  await activate(profileId, v.id);
+  return { versionId: v.id, versionNo };
 }
 
 /** Proposes a generalisable preference from an edit; the founder decides whether to keep it. */

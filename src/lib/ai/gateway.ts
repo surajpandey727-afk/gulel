@@ -47,9 +47,8 @@ async function resolveAgent(workspaceId: string, agent: AgentKey): Promise<Resol
   const { data: conns } = cfg.connection_id ? await q.eq("id", cfg.connection_id) : await q.eq("provider", "anthropic").eq("is_enabled", true).order("created_at");
   conn = conns?.[0] ?? null;
   if (conn && !conn.is_enabled) throw new GatewayError("not_configured", `Provider connection "${conn.label}" is disabled`);
-  if (conn && conn.provider !== "anthropic") {
-    // OmniRoute and other gateways are stored for future use but not executable yet.
-    throw new GatewayError("not_configured", `Provider "${conn.provider}" is not enabled for execution in this build`);
+  if (conn && conn.provider !== "anthropic" && !conn.base_url) {
+    throw new GatewayError("not_configured", `Provider "${conn.provider}" requires a base URL for routing.`);
   }
 
   let apiKey: string | undefined;
@@ -73,7 +72,7 @@ async function resolveAgent(workspaceId: string, agent: AgentKey): Promise<Resol
     defaultHeaders: anthropicWorkspace ? { "anthropic-workspace-id": anthropicWorkspace } : undefined,
   });
   return {
-    provider: "anthropic",
+    provider: conn?.provider ?? "anthropic",
     connectionId: conn?.id ?? null,
     connectionLabel: conn?.label ?? "environment",
     model: cfg.model,
