@@ -4,7 +4,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, redact } from "@/lib/crypto";
-import { estimateCostUsd, type AgentKey } from "@/lib/ai/models";
+import { AGENTS, estimateCostUsd, type AgentKey } from "@/lib/ai/models";
 import { cacheKey, llmCacheGet, llmCacheSet } from "@/lib/cache";
 
 /**
@@ -34,13 +34,21 @@ interface ResolvedAgent {
 
 async function resolveAgent(workspaceId: string, agent: AgentKey): Promise<ResolvedAgent> {
   const admin = createAdminClient();
-  const { data: cfg } = await admin
+  const { data: dbCfg } = await admin
     .from("agent_configurations")
     .select("model, effort, monthly_budget_usd, on_budget_exhausted, prompt_version, connection_id")
     .eq("workspace_id", workspaceId)
     .eq("agent", agent)
     .single();
-  if (!cfg) throw new GatewayError("not_configured", `No configuration for agent ${agent}`);
+  // Fall back to sensible defaults from the registry so agents work even before DB seeding.
+  const cfg = dbCfg ?? {
+    model: agent === "fidelity" || agent === "chitragupta" || agent === "classifier" ? "claude-haiku-5-5" : "claude-opus-5-5",
+    effort: agent === "doot" || agent === "mariyada" || agent === "voice" ? "high" : agent === "classifier" || agent === "fidelity" || agent === "chitragupta" ? "low" : "medium",
+    monthly_budget_usd: 50,
+    on_budget_exhausted: "warn" as const,
+    prompt_version: "v1",
+    connection_id: null,
+  };
 
   // Explicit connection for the agent, else the workspace's enabled Anthropic connection.
   let conn: { id: string; provider: string; label: string; base_url: string | null; anthropic_workspace_id: string | null; is_enabled: boolean } | null = null;
