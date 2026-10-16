@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, redact } from "@/lib/crypto";
 import { estimateCostUsd, type AgentKey } from "@/lib/ai/models";
+import { cacheKey, llmCacheGet, llmCacheSet } from "@/lib/cache";
 
 /**
  * AI Provider Gateway. The ONLY place that talks to an LLM.
@@ -107,6 +108,8 @@ export interface RunOptions<S extends z.ZodType> {
   correlationId?: string;
   /** Enables Anthropic server-side web search; output is then parsed from JSON text instead of a constrained format. */
   webSearch?: { maxUses: number; blockedDomains?: string[] };
+  /** Cache the LLM response for identical (agent, system, input) combos. TTL in ms (default 1h). Set to 0 to disable. */
+  cacheTtlMs?: number;
 }
 
 export interface RunResult<T> {
@@ -129,6 +132,18 @@ function extractJson(text: string): unknown {
 export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): Promise<RunResult<z.infer<S>>> {
   const admin = createAdminClient();
   const agent = await resolveAgent(opts.workspaceId, opts.agent);
+
+  const ttl = opts.cacheTtlMs ?? 0;
+  if (ttl > 0) {
+    const hash = cacheKey(opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
+    const cached = await llmCacheGet(hash);
+    if (cached) {
+      const parsed = opts.schema.safeParse(cached);
+      if (parsed.success) {
+        return { data: parsed.data, executionId: "cached", model: agent.model, provider: agent.provider, costUsd: 0, searchedUrls: [] };
+      }
+    }
+  }
 
   const spent = await monthSpend(opts.workspaceId, opts.agent);
   const { data: exec } = await admin
@@ -219,6 +234,10 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
       throw new GatewayError("invalid_output", "AI output failed validation and was not saved.");
     }
     await finish({ ...base, status: "succeeded" });
+    if (ttl > 0) {
+      const hash = cacheKey(opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
+      await llmCacheSet(hash, opts.workspaceId, opts.agent, parsed.data, ttl).catch(() => {});
+    }
     return { data: parsed.data, executionId: exec.id, model: response.model, provider: agent.provider, costUsd, searchedUrls };
   } catch (err) {
     if (err instanceof GatewayError) throw err;

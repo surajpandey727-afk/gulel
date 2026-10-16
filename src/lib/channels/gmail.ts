@@ -22,7 +22,8 @@ export function gmailConfigured() {
 }
 
 function redirectUri() {
-  return `${process.env.NEXT_PUBLIC_APP_URL}/api/gmail/oauth/callback`;
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
+  return `${base}/api/gmail/oauth/callback`;
 }
 
 export function authUrl(state: string) {
