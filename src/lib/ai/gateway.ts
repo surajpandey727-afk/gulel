@@ -238,8 +238,9 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
     }
     const parsed = opts.schema.safeParse(json);
     if (!parsed.success) {
-      await finish({ ...base, status: "invalid_output", error: redact(parsed.error.message).slice(0, 2000) });
-      throw new GatewayError("invalid_output", "AI output failed validation and was not saved.");
+      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      await finish({ ...base, status: "invalid_output", error: redact(issues).slice(0, 2000) });
+      throw new GatewayError("invalid_output", `AI output failed validation: ${redact(issues).slice(0, 500)}`);
     }
     await finish({ ...base, status: "succeeded" });
     if (ttl > 0) {
