@@ -7,6 +7,7 @@ import type { KpiSummary } from "@/lib/metrics";
 import { BAND_LABEL } from "@/lib/scoring/model";
 import { REPLY_LABEL } from "@/lib/ai/agents/classifier";
 import { Badge, MarketBadge } from "@/components/neo/badge";
+import { StaggerReveal } from "@/components/reactbits/stagger-reveal";
 import { ButtonLink } from "@/components/neo/button";
 import { EmptyState, Panel } from "@/components/neo/surface";
 import { GlobalFilters } from "@/components/shell/filters";
@@ -79,8 +80,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
       <section aria-label="Executive KPIs" className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <HeroKpi label="Pipeline value" value={valueLine(k.pipeline_value_by_currency)} delta={k.qualified_pipeline ? { value: `${k.qualified_pipeline} open`, direction: "up" } : undefined} />
         <HeroKpi label="Reply rate" value={pct(k.reply_rate)} delta={k.people_responded ? { value: `${k.people_responded} replied`, direction: (k.reply_rate ?? 0) > 0.1 ? "up" : "flat" } : undefined} />
-        <HeroKpi label="Meetings booked" value={String(k.meetings_booked ?? 0)} delta={k.meeting_conversion ? { value: pct(k.meeting_conversion), direction: (k.meeting_conversion ?? 0) > 0 ? "up" : "flat" } : undefined} />
-        <HeroKpi label="Qualified leads" value={String(k.qualified_leads ?? 0)} delta={k.organisations_discovered ? { value: `${k.organisations_discovered} discovered`, direction: "up" } : undefined} />
+        <HeroKpi label="Meetings booked" value={String(k.meetings_booked ?? 0)} numeric={{ to: k.meetings_booked ?? 0, decimals: 0 }} delta={k.meeting_conversion ? { value: pct(k.meeting_conversion), direction: (k.meeting_conversion ?? 0) > 0 ? "up" : "flat" } : undefined} />
+        <HeroKpi label="Qualified leads" value={String(k.qualified_leads ?? 0)} numeric={{ to: k.qualified_leads ?? 0, decimals: 0 }} delta={k.organisations_discovered ? { value: `${k.organisations_discovered} discovered`, direction: "up" } : undefined} />
       </section>
 
       {(k.sample_size_reached ?? 0) > 0 && (k.sample_size_reached ?? 0) < 30 && (
@@ -118,7 +119,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
             </Panel>
             <Panel title="Best opportunities" eyebrow="Qualification" id="best-opps" actions={<ButtonLink href="/qualification" size="sm">All</ButtonLink>}>
               {best.data?.length ? (
-                <ul className="flex flex-col gap-2">
+                <StaggerReveal className="flex flex-col gap-2" as="ul">
                   {best.data.slice(0, 4).map((q) => {
                     const o = q.organisations as unknown as { trading_name: string; primary_market: string };
                     const s = Math.round(Number(q.override_score ?? q.score));
@@ -134,7 +135,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
                       </li>
                     );
                   })}
-                </ul>
+                </StaggerReveal>
               ) : (
                 <EmptyState title="No qualified organisations yet" body="Import data or run qualification." action={<ButtonLink href="/data" size="sm" variant="primary">Import data</ButtonLink>} />
               )}
@@ -187,7 +188,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
           {/* Mariyada approval queue (V2 — inline approve/reject) */}
           <Panel title="Mariyada queue" eyebrow="Approvals" id="approvals" actions={<ButtonLink href="/approvals" size="sm">Open queue</ButtonLink>}>
             {approvals.data?.length ? (
-              <ul className="flex flex-col gap-2">
+              <StaggerReveal className="flex flex-col gap-2" as="ul">
                 {approvals.data.map((a) => {
                   const org = (a.outreach_drafts as unknown as { organisations: { trading_name: string; primary_market: string } }).organisations;
                   return (
@@ -203,7 +204,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
                     </li>
                   );
                 })}
-              </ul>
+              </StaggerReveal>
             ) : (
               <EmptyState title="Queue clear" body="Nothing awaiting your review." icon={<CheckCircle className="h-5 w-5" />} />
             )}
@@ -212,7 +213,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
           {/* Activity feed */}
           <Panel title="Recent replies" eyebrow="Activity" id="replies" actions={<ButtonLink href="/inbox" size="sm">Inbox</ButtonLink>}>
             {replies.data?.length ? (
-              <ul className="flex flex-col gap-2">
+              <StaggerReveal className="flex flex-col gap-2" as="ul">
                 {replies.data.map((c) => {
                   const org = c.organisations as unknown as { trading_name: string } | null;
                   const ct = c.contacts as unknown as { full_name: string } | null;
@@ -228,7 +229,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
                     </li>
                   );
                 })}
-              </ul>
+              </StaggerReveal>
             ) : (
               <EmptyState title="No replies yet" body="Replies sync from Gmail once connected." />
             )}
@@ -255,7 +256,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
           {/* Buying signals */}
           <Panel title="Buying signals" eyebrow="Evidence" id="signals">
             {signals.data?.length ? (
-              <ul className="flex flex-col gap-3">
+              <StaggerReveal className="flex flex-col gap-3" as="ul">
                 {signals.data.map((s) => (
                   <li key={s.id} className="flex gap-3 text-sm">
                     <Radio className="mt-0.5 h-4 w-4 shrink-0 text-oxblood" aria-hidden />
@@ -266,7 +267,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
                     </span>
                   </li>
                 ))}
-              </ul>
+              </StaggerReveal>
             ) : (
               <EmptyState title="No signals" body="Signals appear as evidence is added." />
             )}

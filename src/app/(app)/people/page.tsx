@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { relTime } from "@/lib/filters";
 import { EMAIL_QUALITY_LABEL, type EmailQuality } from "@/lib/contacts/email-quality";
-import { EmptyState, PageHeader } from "@/components/neo/surface";
+import { EmptyState } from "@/components/neo/surface";
+import { AnimatedPageHeader } from "@/components/reactbits/animated-header";
 import { Badge, MarketBadge, StatusBadge } from "@/components/neo/badge";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { SearchBox } from "@/components/shell/search-box";
@@ -24,7 +25,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   if (filter === "generic") rows = rows.filter((r) => (r.contact_channels as Ch[]).some((c) => c.email_quality === "role_generic"));
   return (
     <>
-      <PageHeader title="People" description="Decision-makers and relationships. Named business emails rank above generic inboxes; unverified addresses need review before use." />
+      <AnimatedPageHeader title="People" description="Decision-makers and relationships. Named business emails rank above generic inboxes; unverified addresses need review before use." />
       <div className="mb-4 flex flex-wrap items-center gap-3"><SearchBox placeholder="Search people…" />
         {filter && <Link href="/people" className="text-xs text-oxblood hover:underline">Clear filter: {filter}</Link>}</div>
       {!rows.length ? <EmptyState icon={<Users className="h-5 w-5" />} title="No people" body="Add people from an organisation dossier or import your workbook." /> : (

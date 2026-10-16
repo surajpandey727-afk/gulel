@@ -3,7 +3,8 @@ import { PenLine } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { relTime, resolveFilters, type SearchParams } from "@/lib/filters";
-import { EmptyState, PageHeader } from "@/components/neo/surface";
+import { EmptyState } from "@/components/neo/surface";
+import { AnimatedPageHeader } from "@/components/reactbits/animated-header";
 import { MarketBadge, StatusBadge } from "@/components/neo/badge";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { GlobalFilters } from "@/components/shell/filters";
@@ -23,7 +24,7 @@ export default async function OutreachPage({ searchParams }: { searchParams: Sea
 
   return (
     <>
-      <PageHeader title="Outreach Studio" description="Every message must justify its existence. Drafts are prepared from evidence, in your voice, and never sent without approval." actions={<GlobalFilters showRange={false} />} />
+      <AnimatedPageHeader title="Outreach Studio" description="Every message must justify its existence. Drafts are prepared from evidence, in your voice, and never sent without approval." actions={<GlobalFilters showRange={false} />} />
       {!data?.length ? (
         <EmptyState icon={<PenLine className="h-5 w-5" />} title="No drafts yet" body="Open an organisation and choose “Prepare outreach”. Governance AI decides first whether an approach is justified." action={<ButtonLink href="/organisations" variant="primary" size="sm">Go to organisations</ButtonLink>} />
       ) : (

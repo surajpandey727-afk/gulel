@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { resolveFilters, type SearchParams, relTime } from "@/lib/filters";
 import { BAND_LABEL } from "@/lib/scoring/model";
-import { EmptyState, PageHeader } from "@/components/neo/surface";
+import { EmptyState } from "@/components/neo/surface";
+import { AnimatedPageHeader } from "@/components/reactbits/animated-header";
 import { Badge, MarketBadge } from "@/components/neo/badge";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { GlobalFilters } from "@/components/shell/filters";
@@ -38,7 +39,7 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
 
   return (
     <>
-      <PageHeader title="Organisations" description="One canonical record per company, with a profile per market."
+      <AnimatedPageHeader title="Organisations" description="One canonical record per company, with a profile per market."
         actions={<><GlobalFilters showRange={false} /><NewOrganisationButton /></>} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchBox placeholder="Search organisations…" />

@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { relTime, resolveFilters, type SearchParams } from "@/lib/filters";
 import { BAND_LABEL } from "@/lib/scoring/model";
-import { EmptyState, PageHeader } from "@/components/neo/surface";
+import { EmptyState } from "@/components/neo/surface";
+import { AnimatedPageHeader } from "@/components/reactbits/animated-header";
 import { Badge, MarketBadge } from "@/components/neo/badge";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { GlobalFilters } from "@/components/shell/filters";
@@ -29,7 +30,7 @@ export default async function QualificationPage({ searchParams }: { searchParams
   const riskOrgs = new Set((risks ?? []).map((r) => r.organisation_id));
   return (
     <>
-      <PageHeader title="Qualification" description="Explainable scores with separate confidence, coverage, propensity and risk. Scores are operating thresholds, not validated classifications."
+      <AnimatedPageHeader title="Qualification" description="Explainable scores with separate confidence, coverage, propensity and risk. Scores are operating thresholds, not validated classifications."
         actions={<><GlobalFilters showRange={false} /><BandFilter value={band} /></>} />
       {!data?.length ? <EmptyState icon={<ListChecks className="h-5 w-5" />} title="Nothing qualified yet" body={`${unqualified ?? 0} organisations on file. Open a dossier, add evidence, and run qualification.`} /> : (
         <Table>

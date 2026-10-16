@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { resolveFilters, type SearchParams } from "@/lib/filters";
-import { PageHeader } from "@/components/neo/surface";
+import { AnimatedPageHeader } from "@/components/reactbits/animated-header";
 import { GlobalFilters } from "@/components/shell/filters";
 import { PipelineBoard, type Opp, type OrgOption } from "./board";
 
@@ -16,7 +16,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Sea
   const [{ data }, { data: orgList }] = await Promise.all([q, supabase.from("organisations").select("id, trading_name, primary_market").eq("workspace_id", s.workspaceId).is("deleted_at", null).order("trading_name")]);
   return (
     <>
-      <PageHeader title="Pipeline" description="Real opportunities only — created from qualified conversations. Lead qualification is kept separate from deal forecasting." actions={<GlobalFilters showRange={false} />} />
+      <AnimatedPageHeader title="Pipeline" description="Real opportunities only — created from qualified conversations. Lead qualification is kept separate from deal forecasting." actions={<GlobalFilters showRange={false} />} />
       <PipelineBoard opps={(data ?? []) as unknown as Opp[]} orgs={(orgList ?? []) as OrgOption[]} />
     </>
   );
