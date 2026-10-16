@@ -5,6 +5,7 @@ import { getSession } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { runCampaign } from "@/lib/discovery/service";
 import { dismissSignal, enrichFromCompaniesHouse, promoteSignal } from "@/lib/discovery/promote";
+import { enrichOrganisationNews } from "@/lib/discovery/news";
 
 type R<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 const fail = (e: unknown): { ok: false; error: string } => ({ ok: false, error: (e as Error).message ?? String(e) });
@@ -94,6 +95,15 @@ export async function dismissSignalAction(id: string): Promise<R> {
   await dismissSignal(s.workspaceId, s.userId, id);
   revalidatePath("/discovery");
   return { ok: true };
+}
+
+export async function enrichNewsAction(organisationId: string, orgName: string, orgWebsite?: string | null, orgMarket?: string | null) {
+  const s = await getSession();
+  try {
+    const r = await enrichOrganisationNews(s.workspaceId, s.userId, organisationId, orgName, orgWebsite, orgMarket);
+    revalidatePath(`/organisations/${organisationId}`);
+    return { ok: true as const, data: r };
+  } catch (e) { return fail(e); }
 }
 
 export async function enrichCompaniesHouseAction(organisationId: string, companyNumber?: string) {

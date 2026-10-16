@@ -14,6 +14,7 @@ import { EmptyState, Panel } from "@/components/neo/surface";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { DossierTabs } from "./dossier-tabs";
 import { CompaniesHouseEnrich } from "./ch-enrich";
+import { NewsEnrich } from "./news-enrich";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 import { EditContactButton, EditOrganisationButton, EvidenceStatusControl } from "./dossier-edit";
 import { AddContactButton, AddEvidenceButton, OverrideButton, PrepareOutreachButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
@@ -218,7 +219,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
         {tab === "signals" && <Panel title="Buying signals" eyebrow="Signals carry strength and uncertainty — not proof of buying"><EvidenceList items={byGroup("signal.")} empty="No signals recorded" /></Panel>}
 
         {tab === "news" && (
-          <Panel title="Latest relevant news" eyebrow={`${newsTop.length} of up to 3 · independent sources prioritised`}>
+          <Panel title="Latest relevant news" eyebrow={`${newsTop.length} of up to 3 · independent sources prioritised`} actions={<NewsEnrich organisationId={id} orgName={org.trading_name} orgWebsite={org.website} orgMarket={org.primary_market} />}>
             {newsTop.length ? (
               <ul className="grid gap-4 md:grid-cols-3">{newsTop.map((n) => (
                 <li key={n.id} className="flex flex-col gap-2 rounded-neo neo-inset-sm p-4">

@@ -79,9 +79,19 @@ export async function runCampaign(db: SupabaseClient, workspaceId: string, campa
   }
 
   let inserted = 0;
+  const minScore = (c as { min_score?: number }).min_score ?? 0;
   const kept = candidates.filter((x) => passesExclusions(x, cfg)).slice(0, c.max_leads_per_run);
   for (const x of kept) {
     const res = resolveOrganisation({ normalisedName: normaliseCompanyName(x.name), domain: x.domain, registrationNumber: x.registration, market: x.market }, existing);
+    if (res.decision !== "auto_merge") {
+      const strengthScore = x.strength === "strong" ? 80 : x.strength === "moderate" ? 55 : 30;
+      if (strengthScore < minScore) continue;
+    }
+    await db.from("entity_resolution_matches").insert({
+      workspace_id: workspaceId, entity_type: "organisation", candidate_ref: x.external_id ?? normaliseCompanyName(x.name),
+      matched_id: res.matchId, score: res.score, signals: res.signals,
+      decision: res.decision === "auto_merge" ? "auto_merged" : res.decision === "propose" ? "proposed" : "proposed",
+    }).select("id").single();
     const { data, error } = await db.from("discovery_signals").upsert({
       workspace_id: workspaceId, campaign_id: c.id, run_id: run!.id, source: x.source, external_id: x.external_id, candidate_name: x.name,
       candidate_domain: x.domain, candidate_registration: x.registration, market: x.market, signal_type: x.signal_type, strength: x.strength,
