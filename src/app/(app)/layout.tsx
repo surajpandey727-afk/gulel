@@ -8,6 +8,7 @@ import { MobileNav, Sidebar } from "@/components/shell/sidebar";
 import { Copilot } from "@/components/copilot/copilot";
 import { CommandPalette, SearchTrigger } from "@/components/shell/command-palette";
 import { ThemeProvider } from "@/components/shell/theme-provider";
+import { ActivityDock } from "@/components/shell/activity-dock";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -45,6 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Suspense>
           <Copilot />
         </Suspense>
+        <ActivityDock workspaceId={session.workspaceId} />
       </div>
     </ThemeProvider>
   );

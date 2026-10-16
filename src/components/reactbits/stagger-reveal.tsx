@@ -1,10 +1,10 @@
 "use client";
 
 import { motion, useInView } from "motion/react";
-import { useRef, type ReactNode } from "react";
+import { Children, useRef, type ReactNode } from "react";
 
 interface StaggerRevealProps {
-  children: ReactNode[];
+  children: ReactNode;
   stagger?: number;
   duration?: number;
   className?: string;
@@ -20,10 +20,11 @@ export function StaggerReveal({
 }: StaggerRevealProps) {
   const ref = useRef<HTMLElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-40px" });
+  const items = Children.toArray(children);
 
   return (
     <Tag ref={ref as never} className={className}>
-      {children.map((child, i) => (
+      {items.map((child, i) => (
         <motion.div
           key={i}
           initial={{ opacity: 0, y: 12 }}

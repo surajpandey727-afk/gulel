@@ -1,5 +1,5 @@
 import {
-  BarChart3, Building2, CheckSquare, Compass, Database, Gauge, Inbox, KanbanSquare, Lightbulb, ListChecks,
+  Activity, BarChart3, Building2, CheckSquare, Compass, Database, Gauge, Inbox, KanbanSquare, Lightbulb, ListChecks,
   PenLine, Settings, Stamp, Users, Crosshair, Send, TrendingUp, Briefcase,
   type LucideIcon,
 } from "lucide-react";
@@ -52,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
     key: "workspace", label: "Workspace", icon: Briefcase,
     items: [
       { href: "/tasks", label: "Tasks", icon: CheckSquare, purpose: "Follow-ups & reminders" },
+      { href: "/operations", label: "Operations", icon: Activity, purpose: "Jobs, agents, system health" },
       { href: "/data", label: "Data Centre", icon: Database, purpose: "Import, dedupe, quality" },
       { href: "/settings", label: "Settings", icon: Settings, purpose: "Voice, providers, scoring" },
     ],
