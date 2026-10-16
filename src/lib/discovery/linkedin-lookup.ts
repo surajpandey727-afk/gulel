@@ -5,6 +5,22 @@ import { NISHAANA_CONTEXT, UNTRUSTED_DATA_RULE } from "@/lib/ai/agents/shared";
 
 const coerceNumber = z.union([z.number(), z.string().transform((s) => { const n = Number(s.replace(/[^0-9.-]/g, "")); return isNaN(n) ? null : n; })]).nullable().optional().default(null);
 
+export function normalizeAiOutput(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const o = raw as Record<string, unknown>;
+  // Flatten nested "organisation" object to top level (AI often nests there)
+  const nested = (o.organisation ?? o.company ?? o.org) as Record<string, unknown> | undefined;
+  if (typeof nested === "object" && nested !== null) {
+    for (const [k, v] of Object.entries(nested)) { if (!(k in o) || o[k] === null || o[k] === undefined || o[k] === "Unknown") o[k] = v; }
+  }
+  // Map common alternative field names
+  if (!o.trading_name || o.trading_name === "Unknown") o.trading_name = o.company_name ?? o.name ?? o.trading_name;
+  if (!o.sector) o.sector = o.industry;
+  if (!o.incorporation_year && o.founded_year) o.incorporation_year = String(o.founded_year);
+  if (!o.linkedin_url && typeof nested?.linkedin_url === "string") o.linkedin_url = nested.linkedin_url;
+  return o;
+}
+
 export const LinkedInOrgSchema = z.object({
   trading_name: z.string().catch("Unknown"),
   legal_name: z.string().nullable().optional().default(null),
@@ -23,7 +39,13 @@ export const LinkedInOrgSchema = z.object({
     title: z.string().catch("Unknown"),
     linkedin_url: z.string().nullable().optional().default(null),
   }).catchall(z.unknown())).optional().default([]).describe("Up to 5 senior decision-makers (founders, C-suite, directors)"),
-  needs: z.array(z.string()).optional().default([]).describe("Inferred strategic needs from Nishaan-a's service areas"),
+  needs: z.array(z.union([
+    z.string(),
+    z.record(z.string(), z.unknown()).transform((o) => {
+      const v = (o as Record<string, unknown>);
+      return String(v.need ?? v.name ?? v.title ?? v.description ?? Object.values(v).find((x) => typeof x === "string") ?? "");
+    }),
+  ])).optional().default([]).describe("Inferred strategic needs from Nishaan-a's service areas"),
   signals: z.array(z.object({
     type: z.enum(["funding", "expansion", "launch", "rebrand", "consolidation", "leadership_change", "hiring", "other"]).catch("other"),
     claim: z.string(),
@@ -31,7 +53,23 @@ export const LinkedInOrgSchema = z.object({
   }).catchall(z.unknown())).optional().default([]).describe("Recent signals indicating advisory need"),
 }).catchall(z.unknown());
 
-export type LinkedInOrgData = z.infer<typeof LinkedInOrgSchema>;
+export type LinkedInOrgData = {
+  trading_name: string;
+  legal_name: string | null;
+  website: string | null;
+  headquarters: string | null;
+  sector: string | null;
+  sub_sector: string | null;
+  employee_count: number | null;
+  description: string | null;
+  primary_market: "UK" | "IN" | null;
+  registration_number: string | null;
+  incorporation_year: string | null;
+  linkedin_url: string;
+  decision_makers: Array<{ name: string; title: string; linkedin_url: string | null }>;
+  needs: string[];
+  signals: Array<{ type: string; claim: string; source_url: string | null }>;
+};
 
 const SYSTEM = `You are Taftish, the discovery and research agent for Nishaan-a OS. ${NISHAANA_CONTEXT}
 
@@ -59,6 +97,7 @@ export async function lookupLinkedInOrg(workspaceId: string, userId: string | nu
     userId,
     maxTokens: 8000,
     webSearch: { maxUses: 6 },
+    preprocess: normalizeAiOutput,
     input: `Today is ${new Date().toISOString().slice(0, 10)}.\nResearch this organisation from their LinkedIn page and all available public sources:\n${linkedinUrl}`,
     cacheTtlMs: 3600_000,
   });

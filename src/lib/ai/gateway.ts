@@ -118,6 +118,8 @@ export interface RunOptions<S extends z.ZodType> {
   webSearch?: { maxUses: number; blockedDomains?: string[] };
   /** Cache the LLM response for identical (agent, system, input) combos. TTL in ms (default 1h). Set to 0 to disable. */
   cacheTtlMs?: number;
+  /** Optional preprocessor to normalize AI output before schema validation. */
+  preprocess?: (raw: unknown) => unknown;
 }
 
 export interface RunResult<T> {
@@ -146,7 +148,8 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
     const hash = cacheKey(opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
     const cached = await llmCacheGet(hash);
     if (cached) {
-      const parsed = opts.schema.safeParse(cached);
+      const preprocessed = opts.preprocess ? opts.preprocess(cached) : cached;
+      const parsed = opts.schema.safeParse(preprocessed);
       if (parsed.success) {
         return { data: parsed.data, executionId: "cached", model: agent.model, provider: agent.provider, costUsd: 0, searchedUrls: [] };
       }
@@ -232,7 +235,7 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
     }
     const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
     let json: unknown;
-    try { json = tools ? extractJson(text) : JSON.parse(text); } catch {
+    try { json = tools ? extractJson(text) : JSON.parse(text); if (opts.preprocess) json = opts.preprocess(json); } catch {
       await finish({ ...base, status: "invalid_output", error: "Output was not valid JSON" });
       throw new GatewayError("invalid_output", "AI output was not valid JSON and was not saved.");
     }
