@@ -145,7 +145,7 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
 
   const ttl = opts.cacheTtlMs ?? 0;
   if (ttl > 0) {
-    const hash = cacheKey(opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
+    const hash = cacheKey(opts.workspaceId, opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
     const cached = await llmCacheGet(hash);
     if (cached) {
       const preprocessed = opts.preprocess ? opts.preprocess(cached) : cached;
@@ -247,7 +247,7 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
     }
     await finish({ ...base, status: "succeeded" });
     if (ttl > 0) {
-      const hash = cacheKey(opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
+      const hash = cacheKey(opts.workspaceId, opts.agent, agent.model, opts.system, opts.cachedContext ?? "", opts.input);
       await llmCacheSet(hash, opts.workspaceId, opts.agent, parsed.data, ttl).catch(() => {});
     }
     return { data: parsed.data, executionId: exec.id, model: response.model, provider: agent.provider, costUsd, searchedUrls };

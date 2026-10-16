@@ -5,12 +5,12 @@ import { GatewayError } from "@/lib/ai/gateway";
 import { createClient } from "@/lib/supabase/server";
 import type { AnalystOutput } from "@/lib/ai/agents/analyst";
 
-export async function ask(question: string): Promise<{ ok: true; insightId: string; answer: AnalystOutput; model: string } | { ok: false; error: string }> {
+export async function ask(question: string, agent?: string): Promise<{ ok: true; insightId: string; answer: AnalystOutput; model: string } | { ok: false; error: string }> {
   const q = question.trim();
   if (q.length < 4 || q.length > 1000) return { ok: false, error: "Ask a question between 4 and 1,000 characters." };
   const session = await getSession();
   try {
-    return { ok: true, ...(await askAnalyst(session.workspaceId, session.userId, q)) };
+    return { ok: true, ...(await askAnalyst(session.workspaceId, session.userId, q, agent)) };
   } catch (e) {
     return { ok: false, error: e instanceof GatewayError ? e.message : "The analyst could not answer. Check Settings → AI providers." };
   }

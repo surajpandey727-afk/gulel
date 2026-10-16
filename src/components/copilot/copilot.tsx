@@ -39,7 +39,7 @@ export function Copilot() {
   const submit = (question: string) =>
     start(async () => {
       setError(null); setSaved(null);
-      const r = await ask(question);
+      const r = await ask(question, agent);
       if (r.ok) setResult({ id: r.insightId, a: r.answer, model: r.model });
       else setError(r.error);
     });

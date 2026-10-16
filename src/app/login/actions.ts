@@ -5,6 +5,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 type Result = { error: string | null; info?: string; redirect?: string };
 
+function safeRedirect(next: string): string {
+  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/overview";
+}
+
 export async function signIn(_: Result, form: FormData): Promise<Result> {
   const supabase = await createClient();
   const email = String(form.get("email") ?? "").trim().toLowerCase();
@@ -37,7 +41,7 @@ export async function signIn(_: Result, form: FormData): Promise<Result> {
     if (!created.user) return { error: "Account creation failed. Try again." };
     const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
     if (signInErr) return { error: signInErr.message };
-    return { error: null, redirect: next.startsWith("/") ? next : "/overview" };
+    return { error: null, redirect: safeRedirect(next) };
   }
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -49,7 +53,7 @@ export async function signIn(_: Result, form: FormData): Promise<Result> {
       if (user) {
         await admin.auth.admin.updateUserById(user.id, { email_confirm: true });
         const { error: retryErr } = await supabase.auth.signInWithPassword({ email, password });
-        if (!retryErr) return { error: null, redirect: next.startsWith("/") ? next : "/overview" };
+        if (!retryErr) return { error: null, redirect: safeRedirect(next) };
         return { error: retryErr.message };
       }
     }
@@ -57,7 +61,7 @@ export async function signIn(_: Result, form: FormData): Promise<Result> {
     if (/rate limit/i.test(error.message)) return { error: "Too many sign-in attempts. Wait a few minutes and try again." };
     return { error: error.message };
   }
-  return { error: null, redirect: next.startsWith("/") ? next : "/overview" };
+  return { error: null, redirect: safeRedirect(next) };
 }
 
 export async function signOut() {
