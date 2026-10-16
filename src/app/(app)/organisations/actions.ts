@@ -6,6 +6,9 @@ import { addContact, addEvidence, createOrganisation } from "@/lib/orgs/service"
 import { overrideQualification, runQualification } from "@/lib/qualification/service";
 import { GatewayError } from "@/lib/ai/gateway";
 import { createClient } from "@/lib/supabase/server";
+import { lookupLinkedInOrg, type LinkedInOrgData } from "@/lib/discovery/linkedin-lookup";
+import { enrichFromCompaniesHouse } from "@/lib/discovery/promote";
+import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 const fail = (e: unknown): { ok: false; error: string } => ({ ok: false, error: e instanceof GatewayError || e instanceof Error ? e.message : "Something went wrong" });
@@ -22,15 +25,68 @@ const OrgSchema = z.object({
   description: z.string().optional(),
 });
 
-export async function createOrganisationAction(input: z.input<typeof OrgSchema>): Promise<ActionResult<string>> {
+export async function lookupLinkedInAction(linkedinUrl: string): Promise<ActionResult<LinkedInOrgData>> {
   const s = await getSession();
-  const p = OrgSchema.safeParse(input);
+  if (!linkedinUrl.includes("linkedin.com/company/")) return { ok: false, error: "Enter a LinkedIn company page URL (e.g. linkedin.com/company/acme)" };
+  try {
+    const data = await lookupLinkedInOrg(s.workspaceId, s.userId, linkedinUrl);
+    return { ok: true, data };
+  } catch (e) { return fail(e); }
+}
+
+const CreateOrgSchema = OrgSchema.extend({
+  linkedin_url: z.string().optional(),
+  decision_makers: z.array(z.object({ name: z.string(), title: z.string(), linkedin_url: z.string().nullable() })).optional(),
+});
+
+export async function createOrganisationAction(input: z.input<typeof CreateOrgSchema>): Promise<ActionResult<string>> {
+  const s = await getSession();
+  const p = CreateOrgSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0].message };
   try {
     const id = await createOrganisation(s.workspaceId, s.userId, p.data);
+
+    // Store LinkedIn URL as an org-level channel
+    if (p.data.linkedin_url) {
+      const supabase = await createClient();
+      await supabase.from("contact_channels").insert({
+        workspace_id: s.workspaceId, organisation_id: id, channel: "linkedin",
+        value: p.data.linkedin_url, source: "linkedin_lookup",
+      });
+    }
+
+    // Add decision-makers as contacts
+    if (p.data.decision_makers?.length) {
+      for (const dm of p.data.decision_makers.slice(0, 10)) {
+        try {
+          await addContact(s.workspaceId, s.userId, id, {
+            full_name: dm.name, title: dm.title, linkedin_url: dm.linkedin_url,
+            subscriber_type: "corporate", source: "linkedin_lookup",
+          });
+        } catch { /* duplicate names are OK to skip */ }
+      }
+    }
+
+    // Sequential agent pipeline (fire-and-forget, errors don't block creation)
+    triggerEnrichmentPipeline(s.workspaceId, s.userId, id, p.data).catch(() => {});
+
     revalidatePath("/organisations");
     return { ok: true, data: id };
   } catch (e) { return fail(e); }
+}
+
+async function triggerEnrichmentPipeline(workspaceId: string, userId: string, orgId: string, input: z.infer<typeof CreateOrgSchema>) {
+  // Step 1: Companies House enrichment (UK orgs with registration number)
+  if (input.primary_market === "UK" && companiesHouseConfigured()) {
+    try {
+      await enrichFromCompaniesHouse(workspaceId, userId, orgId, input.registration_number || undefined);
+    } catch { /* non-fatal */ }
+  }
+
+  // Step 2: Run qualification scoring
+  try {
+    await runQualification(workspaceId, userId, orgId);
+  } catch { /* non-fatal */ }
 }
 
 const ContactSchema = z.object({
