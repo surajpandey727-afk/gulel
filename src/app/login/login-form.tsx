@@ -1,5 +1,5 @@
 "use client";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/neo/button";
 import { Field, Input } from "@/components/neo/field";
@@ -10,6 +10,9 @@ import { signIn } from "./actions";
 export function LoginForm({ next, initialError }: { next: string; initialError: string | null }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [state, action, pending] = useActionState(signIn, { error: initialError });
+  useEffect(() => {
+    if (state.redirect) window.location.href = state.redirect;
+  }, [state.redirect]);
   return (
     <Surface elevation="lg" className="p-6">
       <form action={action} autoComplete="on" className="flex flex-col gap-4">

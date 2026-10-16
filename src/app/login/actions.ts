@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-type Result = { error: string | null; info?: string };
+type Result = { error: string | null; info?: string; redirect?: string };
 
 export async function signIn(_: Result, form: FormData): Promise<Result> {
   const supabase = await createClient();
@@ -27,7 +27,7 @@ export async function signIn(_: Result, form: FormData): Promise<Result> {
     if (data.user && !data.session) {
       return { error: null, info: "Check your inbox — we sent a confirmation link to " + email + ". Click it to finish setup." };
     }
-    if (data.session) redirect(next.startsWith("/") ? next : "/overview");
+    if (data.session) return { error: null, redirect: next.startsWith("/") ? next : "/overview" };
     return { error: null, info: "Account created. Check your email to confirm." };
   }
 
@@ -44,7 +44,7 @@ export async function signIn(_: Result, form: FormData): Promise<Result> {
     if (/rate limit/i.test(error.message)) return { error: "Too many sign-in attempts. Wait a few minutes and try again." };
     return { error: error.message };
   }
-  redirect(next.startsWith("/") ? next : "/overview");
+  return { error: null, redirect: next.startsWith("/") ? next : "/overview" };
 }
 
 export async function signOut() {
