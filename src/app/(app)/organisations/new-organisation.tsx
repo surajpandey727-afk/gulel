@@ -6,7 +6,7 @@ import { Button } from "@/components/neo/button";
 import { Modal } from "@/components/neo/controls";
 import { Field, Input, Select, Textarea } from "@/components/neo/field";
 import { Segmented } from "@/components/neo/segmented";
-import { createOrganisationAction, lookupLinkedInAction } from "./actions";
+import { createOrganisationAction } from "./actions";
 
 interface DecisionMaker { name: string; title: string; linkedin_url: string | null }
 
@@ -27,7 +27,12 @@ export function NewOrganisationButton({ small }: { small?: boolean }) {
     setError(null);
     setLookingUp(true);
     try {
-      const r = await lookupLinkedInAction(linkedinUrl.trim());
+      const res = await fetch("/api/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkedinUrl: linkedinUrl.trim() }),
+      });
+      const r = await res.json();
       if (!r.ok) { setError(r.error); return; }
       const d = r.data!;
       const form = formRef.current;

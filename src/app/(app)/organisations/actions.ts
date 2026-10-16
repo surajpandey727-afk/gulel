@@ -6,7 +6,6 @@ import { addContact, addEvidence, createOrganisation } from "@/lib/orgs/service"
 import { overrideQualification, runQualification } from "@/lib/qualification/service";
 import { GatewayError } from "@/lib/ai/gateway";
 import { createClient } from "@/lib/supabase/server";
-import { lookupLinkedInOrg, type LinkedInOrgData } from "@/lib/discovery/linkedin-lookup";
 import { enrichFromCompaniesHouse } from "@/lib/discovery/promote";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 
@@ -24,15 +23,6 @@ const OrgSchema = z.object({
   relationship_status: z.enum(["prospect", "client", "former_client", "partner", "in_conversation", "do_not_contact"]).default("prospect"),
   description: z.string().optional(),
 });
-
-export async function lookupLinkedInAction(linkedinUrl: string): Promise<ActionResult<LinkedInOrgData>> {
-  const s = await getSession();
-  if (!linkedinUrl.includes("linkedin.com/company/")) return { ok: false, error: "Enter a LinkedIn company page URL (e.g. linkedin.com/company/acme)" };
-  try {
-    const data = await lookupLinkedInOrg(s.workspaceId, s.userId, linkedinUrl);
-    return { ok: true, data };
-  } catch (e) { return fail(e); }
-}
 
 const CreateOrgSchema = OrgSchema.extend({
   linkedin_url: z.string().optional(),
