@@ -202,6 +202,25 @@ export async function deleteSampleAction(id: string): Promise<R> {
   return { ok: true };
 }
 
+/* ------------------------------------------------ Team / workspace members */
+export async function addWorkspaceMemberAction(email: string, role: "analyst" | "reviewer" | "viewer"): Promise<R> {
+  try {
+    const s = await owner();
+    const admin = createAdminClient();
+    const { data: users } = await admin.auth.admin.listUsers();
+    const user = users?.users?.find((u) => u.email === email.toLowerCase().trim());
+    if (!user) return { ok: false, error: `No account found for ${email}. They must sign up first.` };
+    const { data: existing } = await admin.from("workspace_members").select("id").eq("workspace_id", s.workspaceId).eq("user_id", user.id).maybeSingle();
+    if (existing) return { ok: false, error: "Already a member of this workspace." };
+    const { error } = await admin.from("workspace_members").insert({ workspace_id: s.workspaceId, user_id: user.id, role });
+    if (error) return { ok: false, error: error.message };
+    await admin.from("user_preferences").upsert({ user_id: user.id, active_workspace_id: s.workspaceId }, { onConflict: "user_id" });
+    await admin.from("audit_logs").insert({ workspace_id: s.workspaceId, actor_type: "user", actor_id: s.userId, action: "member.added", metadata: { email, role, user_id: user.id } });
+    revalidatePath("/settings/security");
+    return { ok: true, message: `${email} added as ${role}.` };
+  } catch (e) { return fail(e); }
+}
+
 /* ------------------------------------------------ Operations & data */
 export async function runWorkerAction(): Promise<R> {
   try { await owner(); const r = await tick("manual"); revalidatePath("/settings/operations"); return { ok: true, message: `Processed ${r.length} job(s): ${r.filter((x) => x.ok).length} ok, ${r.filter((x) => !x.ok).length} failed.` }; } catch (e) { return fail(e); }

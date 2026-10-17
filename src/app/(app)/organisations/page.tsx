@@ -12,6 +12,7 @@ import { GlobalFilters } from "@/components/shell/filters";
 import { SearchBox } from "@/components/shell/search-box";
 import { ButtonLink } from "@/components/neo/button";
 import { NewOrganisationButton } from "./new-organisation";
+import { BulkDiscoverButton } from "./bulk-discover";
 
 export const metadata = { title: "Organisations" };
 
@@ -40,7 +41,7 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
   return (
     <>
       <AnimatedPageHeader title="Organisations" description="One canonical record per company, with a profile per market."
-        actions={<><GlobalFilters showRange={false} /><NewOrganisationButton /></>} />
+        actions={<><GlobalFilters showRange={false} /><BulkDiscoverButton /><NewOrganisationButton /></>} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchBox placeholder="Search organisations…" />
         <span className="text-xs text-ink-3">{rows.length} shown</span>

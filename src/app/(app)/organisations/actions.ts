@@ -8,6 +8,7 @@ import { GatewayError } from "@/lib/ai/gateway";
 import { createClient } from "@/lib/supabase/server";
 import { enrichFromCompaniesHouse } from "@/lib/discovery/promote";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
+import { enqueueJob } from "@/lib/jobs/enqueue";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 const fail = (e: unknown): { ok: false; error: string } => ({ ok: false, error: e instanceof GatewayError || e instanceof Error ? e.message : "Something went wrong" });
@@ -66,16 +67,30 @@ export async function createOrganisationAction(input: z.input<typeof CreateOrgSc
 }
 
 async function triggerEnrichmentPipeline(workspaceId: string, userId: string, orgId: string, input: z.infer<typeof CreateOrgSchema>) {
-  // Step 1: Companies House enrichment (UK orgs with registration number)
   if (input.primary_market === "UK" && companiesHouseConfigured()) {
     try {
-      await enrichFromCompaniesHouse(workspaceId, userId, orgId, input.registration_number || undefined);
+      const jobId = await enqueueJob(workspaceId, "companies_house", { organisation_id: orgId, registration_number: input.registration_number });
+      try {
+        await enrichFromCompaniesHouse(workspaceId, userId, orgId, input.registration_number || undefined);
+        const admin = (await import("@/lib/supabase/admin")).createAdminClient();
+        await admin.rpc("finish_job", { p_job_id: jobId, p_ok: true, p_result: {}, p_error: null, p_cost: 0 });
+      } catch (e) {
+        const admin = (await import("@/lib/supabase/admin")).createAdminClient();
+        await admin.rpc("finish_job", { p_job_id: jobId, p_ok: false, p_result: null, p_error: (e as Error).message, p_cost: 0 });
+      }
     } catch { /* non-fatal */ }
   }
 
-  // Step 2: Run qualification scoring
   try {
-    await runQualification(workspaceId, userId, orgId);
+    const jobId = await enqueueJob(workspaceId, "qualification", { organisation_id: orgId });
+    try {
+      await runQualification(workspaceId, userId, orgId);
+      const admin = (await import("@/lib/supabase/admin")).createAdminClient();
+      await admin.rpc("finish_job", { p_job_id: jobId, p_ok: true, p_result: {}, p_error: null, p_cost: 0 });
+    } catch (e) {
+      const admin = (await import("@/lib/supabase/admin")).createAdminClient();
+      await admin.rpc("finish_job", { p_job_id: jobId, p_ok: false, p_result: null, p_error: (e as Error).message, p_cost: 0 });
+    }
   } catch { /* non-fatal */ }
 }
 
@@ -134,6 +149,48 @@ export async function addEvidenceAction(input: z.input<typeof EvidenceSchema>): 
     });
     revalidatePath(`/organisations/${p.data.organisation_id}`);
     return { ok: true, data: id };
+  } catch (e) { return fail(e); }
+}
+
+export async function bulkLinkedInDiscoverAction(urls: string[]): Promise<ActionResult<{ queued: number; skipped: string[] }>> {
+  const s = await getSession();
+  const valid: string[] = [];
+  const skipped: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of urls) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const norm = trimmed.replace(/^https?:\/\//, "").replace(/^(www\.)?/, "").replace(/\/+$/, "").toLowerCase();
+    if (!norm.startsWith("linkedin.com/company/")) { skipped.push(trimmed); continue; }
+    if (seen.has(norm)) { skipped.push(`${trimmed} (duplicate)`); continue; }
+    seen.add(norm);
+    valid.push(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+  }
+  if (!valid.length) return { ok: false, error: "No valid LinkedIn company URLs found." };
+  try {
+    for (const url of valid) {
+      await enqueueJob(s.workspaceId, "linkedin_lookup", { linkedin_url: url, user_id: s.userId });
+    }
+    revalidatePath("/organisations");
+    return { ok: true, data: { queued: valid.length, skipped }, message: `${valid.length} URL(s) queued for discovery.` };
+  } catch (e) { return fail(e); }
+}
+
+export async function rediscoverOrganisationAction(organisationId: string): Promise<ActionResult<{ jobId: string }>> {
+  const s = await getSession();
+  try {
+    const jobId = await enqueueJob(s.workspaceId, "rediscovery", { organisation_id: organisationId, user_id: s.userId });
+    revalidatePath(`/organisations/${organisationId}`);
+    return { ok: true, data: { jobId }, message: "Re-discovery queued. Check Activity for progress." };
+  } catch (e) { return fail(e); }
+}
+
+export async function findPeopleAction(organisationId: string): Promise<ActionResult<{ jobId: string }>> {
+  const s = await getSession();
+  try {
+    const jobId = await enqueueJob(s.workspaceId, "people_discovery", { organisation_id: organisationId, user_id: s.userId }, { timeoutSeconds: 600 });
+    revalidatePath(`/organisations/${organisationId}`);
+    return { ok: true, data: { jobId }, message: "People discovery queued. Taftish is searching — check Activity for progress." };
   } catch (e) { return fail(e); }
 }
 

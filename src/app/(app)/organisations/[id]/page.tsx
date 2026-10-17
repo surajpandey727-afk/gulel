@@ -17,7 +17,7 @@ import { CompaniesHouseEnrich } from "./ch-enrich";
 import { NewsEnrich } from "./news-enrich";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 import { EditContactButton, EditOrganisationButton, EvidenceStatusControl } from "./dossier-edit";
-import { AddContactButton, AddEvidenceButton, OverrideButton, PrepareOutreachButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
+import { AddContactButton, AddEvidenceButton, FindPeopleButton, OverrideButton, PrepareOutreachButton, RediscoverButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
 
 type Ev = { id: string; claim_field: string; claim_text: string; fact_type: keyof typeof FACT_TYPE_LABEL; source_name: string; source_url: string | null; published_at: string | null; retrieved_at: string; excerpt: string | null; confidence: number; is_adverse: boolean; value_numeric: number | null; value_currency: string | null; value_as_of: string | null };
 
@@ -116,6 +116,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <EditOrganisationButton org={{ id, trading_name: org.trading_name, legal_name: org.legal_name, website: org.website, registration_number: org.registration_number, primary_market: org.primary_market, sector: org.sector, sub_sector: org.sub_sector, headquarters: org.headquarters, incorporation_date: org.incorporation_date, operating_status: org.operating_status, employee_count: org.employee_count, employee_count_source: org.employee_count_source, relationship_status: org.relationship_status, description: org.description, markets: (org.organisation_market_profiles as Array<{ market: string }>).map((m) => m.market) }} />
+          <RediscoverButton organisationId={id} />
           <AddEvidenceButton organisationId={id} currency={currency} />
           <RunQualificationButton organisationId={id} hasQualification={!!cur} />
           <PrepareOutreachButton organisationId={id} disabled={org.relationship_status === "do_not_contact"} />
@@ -235,7 +236,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
         )}
 
         {tab === "people" && (
-          <Panel title="People & decision-makers" eyebrow="Named people ranked above generic inboxes" actions={<AddContactButton organisationId={id} market={org.primary_market} />}>
+          <Panel title="People & decision-makers" eyebrow="Named people ranked above generic inboxes" actions={<span className="flex items-center gap-2"><FindPeopleButton organisationId={id} /><AddContactButton organisationId={id} market={org.primary_market} /></span>}>
             {(people ?? []).length ? (
               <ul className="flex flex-col gap-3">
                 {(people ?? []).map((p) => {

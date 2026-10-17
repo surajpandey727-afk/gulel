@@ -44,6 +44,14 @@ const TYPE_LABEL: Record<string, string> = {
   followup_scan: "Follow-up scan",
   trigger_scan: "Trigger scan",
   discovery_run: "Discovery run",
+  enrichment: "Enrichment",
+  qualification: "Qualification",
+  companies_house: "Companies House",
+  news_enrich: "News enrichment",
+  bulk_discovery: "Bulk discovery",
+  linkedin_lookup: "LinkedIn lookup",
+  rediscovery: "Re-discovery",
+  people_discovery: "People discovery",
 };
 
 function timeAgo(iso: string): string {
@@ -99,7 +107,7 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 lg:bottom-6 lg:right-6">
+    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 lg:bottom-6 lg:right-6" style={{ maxHeight: "calc(100dvh - 8rem)" }}>
       <AnimatePresence>
         {expanded && (
           <motion.div

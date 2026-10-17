@@ -1,14 +1,14 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Check, FilePlus2, PenLine, RefreshCcw, ShieldOff, UserPlus, X } from "lucide-react";
+import { Check, FilePlus2, PenLine, RefreshCcw, Search, ShieldOff, UserPlus, X } from "lucide-react";
 import { Button, IconButton } from "@/components/neo/button";
 import { Modal, Slider, Switch } from "@/components/neo/controls";
 import { Field, Input, Select, Textarea } from "@/components/neo/field";
 import { Segmented } from "@/components/neo/segmented";
 import { Badge } from "@/components/neo/badge";
 import { CLAIM_FIELDS } from "@/lib/orgs/constants";
-import { addContactAction, addEvidenceAction, overrideQualificationAction, reviewRiskFlagAction, runQualificationAction, suppressAction } from "../actions";
+import { addContactAction, addEvidenceAction, findPeopleAction, overrideQualificationAction, rediscoverOrganisationAction, reviewRiskFlagAction, runQualificationAction, suppressAction } from "../actions";
 import { prepareOutreachAction } from "../../outreach/actions";
 
 function useAction() {
@@ -25,6 +25,44 @@ export function RunQualificationButton({ organisationId, hasQualification }: { o
       <Button loading={pending} onClick={() => start(async () => { setError(null); const r = await runQualificationAction(organisationId); if (!r.ok) setError(r.error); else router.refresh(); })}>
         <RefreshCcw className="h-4 w-4" /> {hasQualification ? "Re-qualify" : "Qualify"}
       </Button>
+      {error && <span role="alert" className="max-w-xs text-right text-xs text-oxblood">⚠ {error}</span>}
+    </span>
+  );
+}
+
+export function RediscoverButton({ organisationId }: { organisationId: string }) {
+  const { pending, error, start, router, setError } = useAction();
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <Button loading={pending} onClick={() => start(async () => {
+        setError(null); setMsg(null);
+        const r = await rediscoverOrganisationAction(organisationId);
+        if (!r.ok) setError(r.error);
+        else { setMsg(r.message ?? "Queued"); router.refresh(); }
+      })}>
+        <RefreshCcw className="h-4 w-4" /> Re-discover
+      </Button>
+      {msg && <span className="text-right text-xs text-positive">{msg}</span>}
+      {error && <span role="alert" className="max-w-xs text-right text-xs text-oxblood">⚠ {error}</span>}
+    </span>
+  );
+}
+
+export function FindPeopleButton({ organisationId }: { organisationId: string }) {
+  const { pending, error, start, router, setError } = useAction();
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <Button size="sm" loading={pending} onClick={() => start(async () => {
+        setError(null); setMsg(null);
+        const r = await findPeopleAction(organisationId);
+        if (!r.ok) setError(r.error);
+        else { setMsg(r.message ?? "Queued"); router.refresh(); }
+      })}>
+        <Search className="h-4 w-4" /> Find these people
+      </Button>
+      {msg && <span className="text-right text-xs text-positive">{msg}</span>}
       {error && <span role="alert" className="max-w-xs text-right text-xs text-oxblood">⚠ {error}</span>}
     </span>
   );

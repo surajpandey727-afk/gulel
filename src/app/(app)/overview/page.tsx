@@ -61,7 +61,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="eyebrow mb-1.5">Command centre</p>
-          <h1 className="text-[1.9rem] font-semibold tracking-tight text-ink">{greeting()}, Aarav</h1>
+          <h1 className="text-[1.9rem] font-semibold tracking-tight text-ink">{greeting()}, {session.displayName}</h1>
           <p className="mt-1.5 max-w-[46rem] text-[0.9rem] text-ink-2">
             {digestParts.join(" · ") || `${f.rangeLabel} · ${f.market ?? "UK & India"}`}.
           </p>

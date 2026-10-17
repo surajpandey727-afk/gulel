@@ -5,6 +5,12 @@ import { classifyReply } from "@/lib/inbox/classify";
 import { redact } from "@/lib/crypto";
 import { runCampaign } from "@/lib/discovery/service";
 import { scanTriggers } from "@/lib/triggers/monitor";
+import { enrichFromCompaniesHouse } from "@/lib/discovery/promote";
+import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
+import { runQualification } from "@/lib/qualification/service";
+import { lookupLinkedInOrg } from "@/lib/discovery/linkedin-lookup";
+import { createOrganisation } from "@/lib/orgs/service";
+import { discoverPeople } from "@/lib/discovery/people-discovery";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
 
@@ -14,6 +20,11 @@ const HANDLERS: Record<string, (j: Job) => Promise<unknown>> = {
   followup_scan: (j) => followupScan(j.workspace_id),
   trigger_scan: (j) => scanTriggers(createAdminClient(), j.workspace_id),
   discovery_run: (j) => runCampaign(createAdminClient(), j.workspace_id, j.payload.campaign_id as string, null, "schedule"),
+  companies_house: (j) => enrichFromCompaniesHouse(j.workspace_id, j.payload.user_id as string ?? null, j.payload.organisation_id as string, j.payload.registration_number as string | undefined),
+  qualification: (j) => runQualification(j.workspace_id, j.payload.user_id as string ?? null, j.payload.organisation_id as string),
+  rediscovery: (j) => runRediscovery(j),
+  linkedin_lookup: (j) => runLinkedInLookup(j),
+  people_discovery: (j) => runPeopleDiscovery(j),
 };
 
 /** Schedules recurring work idempotently (one gmail_sync per account per 5-minute slot). */
@@ -57,6 +68,62 @@ export async function tick(worker = "web") {
     }
   }
   return results;
+}
+
+async function runLinkedInLookup(j: Job) {
+  const url = j.payload.linkedin_url as string;
+  const userId = (j.payload.user_id as string | null) ?? "system";
+  const data = await lookupLinkedInOrg(j.workspace_id, userId, url);
+  const orgId = await createOrganisation(j.workspace_id, userId, {
+    trading_name: data.trading_name,
+    legal_name: data.legal_name,
+    website: data.website,
+    registration_number: data.registration_number,
+    primary_market: data.primary_market ?? "UK",
+    sector: data.sector,
+    headquarters: data.headquarters,
+    description: data.description,
+    relationship_status: "prospect",
+  });
+
+  if (data.primary_market === "UK" && companiesHouseConfigured()) {
+    try { await enrichFromCompaniesHouse(j.workspace_id, userId, orgId, data.registration_number || undefined); } catch { /* non-fatal */ }
+  }
+  try { await runQualification(j.workspace_id, userId, orgId); } catch { /* non-fatal */ }
+
+  return { organisation_id: orgId, trading_name: data.trading_name };
+}
+
+async function runRediscovery(j: Job) {
+  const admin = createAdminClient();
+  const orgId = j.payload.organisation_id as string;
+  const userId = (j.payload.user_id as string | null) ?? "system";
+  const { data: org } = await admin.from("organisations").select("primary_market, registration_number, trading_name, website").eq("id", orgId).single();
+  if (!org) throw new Error("Organisation not found");
+  const results: string[] = [];
+
+  if (org.primary_market === "UK" && companiesHouseConfigured()) {
+    try {
+      await enrichFromCompaniesHouse(j.workspace_id, userId, orgId, org.registration_number || undefined);
+      results.push("Companies House: enriched");
+    } catch (e) { results.push(`Companies House: ${(e as Error).message}`); }
+  }
+
+  try {
+    await runQualification(j.workspace_id, userId, orgId);
+    results.push("Qualification: re-scored");
+  } catch (e) { results.push(`Qualification: ${(e as Error).message}`); }
+
+  return { results };
+}
+
+async function runPeopleDiscovery(j: Job) {
+  const admin = createAdminClient();
+  const orgId = j.payload.organisation_id as string;
+  const userId = j.payload.user_id as string;
+  const { data: org } = await admin.from("organisations").select("trading_name, website, primary_market, sector, linkedin_url").eq("id", orgId).single();
+  if (!org) throw new Error("Organisation not found");
+  return discoverPeople(j.workspace_id, userId, { id: orgId, ...org });
 }
 
 /** Internal reminders only — never sends. A previous approval does not authorise a follow-up. */
