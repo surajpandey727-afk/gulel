@@ -6,7 +6,28 @@ export const metadata: Metadata = {
   title: { default: "gulel — for nishaan-a", template: "%s · gulel" },
   description: "Commercial intelligence & outreach operating system",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icons/monogram.png", apple: "/icons/monogram.png" },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
+  openGraph: {
+    title: "gulel — for nishaan-a",
+    description: "Commercial intelligence & outreach operating system",
+    url: "https://gulel.nishaan-a.com",
+    siteName: "gulel",
+    images: [{ url: "/og.png", width: 1200, height: 630 }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "gulel — for nishaan-a",
+    description: "Commercial intelligence & outreach operating system",
+    images: ["/og.png"],
+  },
   robots: { index: false, follow: false },
 };
 
