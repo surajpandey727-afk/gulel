@@ -121,9 +121,10 @@ async function runPeopleDiscovery(j: Job) {
   const admin = createAdminClient();
   const orgId = j.payload.organisation_id as string;
   const userId = j.payload.user_id as string;
-  const { data: org } = await admin.from("organisations").select("trading_name, website, primary_market, sector, linkedin_url").eq("id", orgId).single();
-  if (!org) throw new Error("Organisation not found");
-  return discoverPeople(j.workspace_id, userId, { id: orgId, ...org });
+  const { data: org, error } = await admin.from("organisations").select("trading_name, website, primary_market, sector").eq("id", orgId).single();
+  if (error || !org) throw new Error(error?.message ?? "Organisation not found");
+  const { data: linkedinCh } = await admin.from("contact_channels").select("value").eq("organisation_id", orgId).eq("channel", "linkedin").limit(1).maybeSingle();
+  return discoverPeople(j.workspace_id, userId, { id: orgId, ...org, linkedin_url: linkedinCh?.value ?? null });
 }
 
 /** Internal reminders only — never sends. A previous approval does not authorise a follow-up. */
