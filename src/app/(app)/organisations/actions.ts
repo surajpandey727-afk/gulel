@@ -194,6 +194,22 @@ export async function findPeopleAction(organisationId: string): Promise<ActionRe
   } catch (e) { return fail(e); }
 }
 
+export async function discoverPeopleAllAction(): Promise<ActionResult<{ queued: number }>> {
+  const s = await getSession();
+  const supabase = await createClient();
+  const { data: orgs } = await supabase.from("organisations").select("id").eq("workspace_id", s.workspaceId).is("deleted_at", null);
+  if (!orgs?.length) return { ok: false, error: "No organisations in your workspace." };
+  let queued = 0;
+  for (const org of orgs) {
+    try {
+      await enqueueJob(s.workspaceId, "people_discovery", { organisation_id: org.id, user_id: s.userId }, { timeoutSeconds: 600 });
+      queued++;
+    } catch { /* skip duplicates */ }
+  }
+  revalidatePath("/people");
+  return { ok: true, data: { queued }, message: `People discovery queued for ${queued} organisation(s). Check Activity for progress.` };
+}
+
 export async function runQualificationAction(organisationId: string): Promise<ActionResult<{ score: number; band: string }>> {
   const s = await getSession();
   try {
