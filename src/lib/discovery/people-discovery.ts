@@ -131,7 +131,7 @@ export async function discoverPeople(
             value: email.address.toLowerCase().trim(),
             email_quality: email.type === "personal_named" ? "personal_named" : email.type === "role_generic" ? "role_generic" : null,
             verification_status: "candidate",
-            verification_method: "ai_discovered",
+            verification_method: "import_unverified",
             source: email.source_url ? `taftish: ${email.source_url}` : "taftish",
           });
           emailsAdded++;
@@ -147,7 +147,7 @@ export async function discoverPeople(
             channel: "phone",
             value: phone.number.replace(/\s+/g, " ").trim(),
             verification_status: "candidate",
-            verification_method: "ai_discovered",
+            verification_method: "import_unverified",
             source: phone.source_url ? `taftish: ${phone.source_url}` : "taftish",
           });
           phonesAdded++;
