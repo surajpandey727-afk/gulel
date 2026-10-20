@@ -6,11 +6,18 @@ import { NISHAANA_CONTEXT, UNTRUSTED_DATA_RULE } from "@/lib/ai/agents/shared";
 import { addContact } from "@/lib/orgs/service";
 import { createClient } from "@/lib/supabase/server";
 
-const PhoneSchema = z.object({
-  number: z.string().describe("Phone number with country code, e.g. +44 20 7123 4567"),
-  type: z.enum(["mobile", "direct", "office", "unknown"]).catch("unknown"),
-  source_url: z.string().nullable().optional().default(null),
-});
+const PhoneSchema = z.preprocess(
+  (v: unknown) => {
+    if (typeof v === "string") return { number: v };
+    if (v && typeof v === "object" && !("number" in v) && "phone" in v) return { ...v, number: (v as Record<string, unknown>).phone };
+    return v;
+  },
+  z.object({
+    number: z.string().describe("Phone number with country code, e.g. +44 20 7123 4567"),
+    type: z.enum(["mobile", "direct", "office", "unknown"]).catch("unknown"),
+    source_url: z.string().nullable().optional().default(null),
+  }),
+);
 
 const EmailSchema = z.preprocess(
   (v: unknown) => {
