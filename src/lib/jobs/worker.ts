@@ -9,7 +9,7 @@ import { enrichFromCompaniesHouse } from "@/lib/discovery/promote";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 import { runQualification } from "@/lib/qualification/service";
 import { lookupLinkedInOrg } from "@/lib/discovery/linkedin-lookup";
-import { createOrganisation } from "@/lib/orgs/service";
+import { addContact, createOrganisation } from "@/lib/orgs/service";
 import { discoverPeople } from "@/lib/discovery/people-discovery";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
@@ -71,6 +71,7 @@ export async function tick(worker = "web") {
 }
 
 async function runLinkedInLookup(j: Job) {
+  const admin = createAdminClient();
   const url = j.payload.linkedin_url as string;
   const userId = (j.payload.user_id as string | null) ?? "system";
   const data = await lookupLinkedInOrg(j.workspace_id, userId, url);
@@ -84,7 +85,23 @@ async function runLinkedInLookup(j: Job) {
     headquarters: data.headquarters,
     description: data.description,
     relationship_status: "prospect",
-  });
+  }, admin);
+
+  if (data.linkedin_url) {
+    await admin.from("contact_channels").upsert({
+      workspace_id: j.workspace_id, organisation_id: orgId, channel: "linkedin",
+      value: data.linkedin_url, source: "linkedin_lookup",
+    }, { onConflict: "workspace_id,channel,value", ignoreDuplicates: true }).then(() => {});
+  }
+
+  for (const dm of (data.decision_makers ?? []).slice(0, 10)) {
+    try {
+      await addContact(j.workspace_id, userId, orgId, {
+        full_name: dm.name, title: dm.title, linkedin_url: dm.linkedin_url,
+        subscriber_type: "corporate", source: "linkedin_lookup",
+      }, admin);
+    } catch { /* duplicate names OK */ }
+  }
 
   if (data.primary_market === "UK" && companiesHouseConfigured()) {
     try { await enrichFromCompaniesHouse(j.workspace_id, userId, orgId, data.registration_number || undefined); } catch { /* non-fatal */ }
@@ -124,7 +141,7 @@ async function runPeopleDiscovery(j: Job) {
   const { data: org, error } = await admin.from("organisations").select("trading_name, website, primary_market, sector").eq("id", orgId).single();
   if (error || !org) throw new Error(error?.message ?? "Organisation not found");
   const { data: linkedinCh } = await admin.from("contact_channels").select("value").eq("organisation_id", orgId).eq("channel", "linkedin").limit(1).maybeSingle();
-  return discoverPeople(j.workspace_id, userId, { id: orgId, ...org, linkedin_url: linkedinCh?.value ?? null });
+  return discoverPeople(j.workspace_id, userId, { id: orgId, ...org, linkedin_url: linkedinCh?.value ?? null }, admin);
 }
 
 /** Internal reminders only — never sends. A previous approval does not authorise a follow-up. */

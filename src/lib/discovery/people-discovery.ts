@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { runStructured } from "@/lib/ai/gateway";
 import { NISHAANA_CONTEXT, UNTRUSTED_DATA_RULE } from "@/lib/ai/agents/shared";
 import { addContact } from "@/lib/orgs/service";
@@ -73,6 +74,8 @@ export async function discoverPeople(
   workspaceId: string,
   userId: string,
   org: { id: string; trading_name: string; website: string | null; primary_market: string; sector: string | null; linkedin_url?: string | null },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client?: SupabaseClient<any>,
 ) {
   const res = await runStructured({
     workspaceId,
@@ -99,7 +102,7 @@ export async function discoverPeople(
     cacheTtlMs: 3600_000,
   });
 
-  const supabase = await createClient();
+  const supabase = client ?? await createClient();
   let added = 0;
   let skipped = 0;
   let phonesAdded = 0;
@@ -118,7 +121,7 @@ export async function discoverPeople(
         email: primaryEmail,
         subscriber_type: "corporate",
         source: p.source_urls[0] ? `taftish: ${p.source_urls[0]}` : "taftish",
-      });
+      }, supabase);
 
       // Add additional emails beyond the primary
       for (const email of p.emails.slice(primaryEmail ? 1 : 0)) {

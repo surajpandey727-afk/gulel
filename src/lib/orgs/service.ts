@@ -1,4 +1,5 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { classifyEmail, normaliseEmail } from "@/lib/contacts/email-quality";
 import { classifyTitle, normaliseCompanyName, normaliseDomain, normaliseLinkedIn, normalisePersonName, normaliseUrl, splitName } from "@/lib/import/normalise";
@@ -18,8 +19,9 @@ export interface OrgInput {
   is_demo?: boolean;
 }
 
-export async function createOrganisation(workspaceId: string, userId: string, input: OrgInput) {
-  const supabase = await createClient();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function createOrganisation(workspaceId: string, userId: string, input: OrgInput, client?: SupabaseClient<any>) {
+  const supabase = client ?? await createClient();
   const website = normaliseUrl(input.website);
   const { data, error } = await supabase.from("organisations").insert({
     workspace_id: workspaceId,
@@ -62,8 +64,9 @@ export interface ContactInput {
   is_demo?: boolean;
 }
 
-export async function addContact(workspaceId: string, userId: string, organisationId: string, input: ContactInput) {
-  const supabase = await createClient();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function addContact(workspaceId: string, userId: string, organisationId: string, input: ContactInput, client?: SupabaseClient<any>) {
+  const supabase = client ?? await createClient();
   const { first, last } = splitName(input.full_name);
   const role = classifyTitle(input.title);
   const email = input.email ? normaliseEmail(input.email) : null;
