@@ -12,11 +12,18 @@ const PhoneSchema = z.object({
   source_url: z.string().nullable().optional().default(null),
 });
 
-const EmailSchema = z.object({
-  address: z.string(),
-  type: z.enum(["personal_named", "role_generic", "personal_free", "unknown"]).catch("unknown"),
-  source_url: z.string().nullable().optional().default(null),
-});
+const EmailSchema = z.preprocess(
+  (v: unknown) => {
+    if (typeof v === "string") return { address: v };
+    if (v && typeof v === "object" && !("address" in v) && "email" in v) return { ...v, address: (v as Record<string, unknown>).email };
+    return v;
+  },
+  z.object({
+    address: z.string(),
+    type: z.enum(["personal_named", "role_generic", "personal_free", "unknown"]).catch("unknown"),
+    source_url: z.string().nullable().optional().default(null),
+  }),
+);
 
 const PersonSchema = z.object({
   name: z.string(),
