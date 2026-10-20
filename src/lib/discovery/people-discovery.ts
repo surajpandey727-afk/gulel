@@ -31,7 +31,7 @@ const PersonSchema = z.object({
 
 const PeopleDiscoverySchema = z.object({
   people: z.array(PersonSchema).describe("Decision-makers and key contacts discovered"),
-  sources_checked: z.array(z.string()).describe("URLs or source names that were searched"),
+  sources_checked: z.array(z.string()).default([]).describe("URLs or source names that were searched"),
   notes: z.string().nullable().optional(),
 });
 
