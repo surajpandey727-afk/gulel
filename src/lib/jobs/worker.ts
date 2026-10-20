@@ -11,6 +11,8 @@ import { runQualification } from "@/lib/qualification/service";
 import { lookupLinkedInOrg } from "@/lib/discovery/linkedin-lookup";
 import { addContact, createOrganisation } from "@/lib/orgs/service";
 import { discoverPeople } from "@/lib/discovery/people-discovery";
+import { enrichOrganisationNews } from "@/lib/discovery/news";
+import { enqueueJob } from "@/lib/jobs/enqueue";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
 
@@ -21,10 +23,11 @@ const HANDLERS: Record<string, (j: Job) => Promise<unknown>> = {
   trigger_scan: (j) => scanTriggers(createAdminClient(), j.workspace_id),
   discovery_run: (j) => runCampaign(createAdminClient(), j.workspace_id, j.payload.campaign_id as string, null, "schedule"),
   companies_house: (j) => enrichFromCompaniesHouse(j.workspace_id, j.payload.user_id as string ?? null, j.payload.organisation_id as string, j.payload.registration_number as string | undefined),
-  qualification: (j) => runQualification(j.workspace_id, j.payload.user_id as string ?? null, j.payload.organisation_id as string),
+  qualification: (j) => runQualification(j.workspace_id, j.payload.user_id as string ?? null, j.payload.organisation_id as string, createAdminClient()),
   rediscovery: (j) => runRediscovery(j),
   linkedin_lookup: (j) => runLinkedInLookup(j),
   people_discovery: (j) => runPeopleDiscovery(j),
+  news_enrich: (j) => runNewsEnrich(j),
 };
 
 /** Schedules recurring work idempotently (one gmail_sync per account per 5-minute slot). */
@@ -103,12 +106,28 @@ async function runLinkedInLookup(j: Job) {
     } catch { /* duplicate names OK */ }
   }
 
-  if (data.primary_market === "UK" && companiesHouseConfigured()) {
-    try { await enrichFromCompaniesHouse(j.workspace_id, userId, orgId, data.registration_number || undefined); } catch { /* non-fatal */ }
+  // Queue full enrichment pipeline as follow-on jobs
+  const queued: string[] = [];
+  try {
+    await enqueueJob(j.workspace_id, "people_discovery", { organisation_id: orgId, user_id: userId }, { timeoutSeconds: 600 });
+    queued.push("people_discovery");
+  } catch { /* idempotency or non-fatal */ }
+  try {
+    await enqueueJob(j.workspace_id, "news_enrich", { organisation_id: orgId, user_id: userId, org_name: data.trading_name, org_website: data.website, org_market: data.primary_market });
+    queued.push("news_enrich");
+  } catch { /* non-fatal */ }
+  if ((data.primary_market ?? "UK") === "UK" && companiesHouseConfigured()) {
+    try {
+      await enqueueJob(j.workspace_id, "companies_house", { organisation_id: orgId, user_id: userId, registration_number: data.registration_number });
+      queued.push("companies_house");
+    } catch { /* non-fatal */ }
   }
-  try { await runQualification(j.workspace_id, userId, orgId); } catch { /* non-fatal */ }
+  try {
+    await enqueueJob(j.workspace_id, "qualification", { organisation_id: orgId, user_id: userId });
+    queued.push("qualification");
+  } catch { /* non-fatal */ }
 
-  return { organisation_id: orgId, trading_name: data.trading_name };
+  return { organisation_id: orgId, trading_name: data.trading_name, enrichment_queued: queued };
 }
 
 async function runRediscovery(j: Job) {
@@ -142,6 +161,22 @@ async function runPeopleDiscovery(j: Job) {
   if (error || !org) throw new Error(error?.message ?? "Organisation not found");
   const { data: linkedinCh } = await admin.from("contact_channels").select("value").eq("organisation_id", orgId).eq("channel", "linkedin").limit(1).maybeSingle();
   return discoverPeople(j.workspace_id, userId, { id: orgId, ...org, linkedin_url: linkedinCh?.value ?? null }, admin);
+}
+
+async function runNewsEnrich(j: Job) {
+  const admin = createAdminClient();
+  const orgId = j.payload.organisation_id as string;
+  const userId = (j.payload.user_id as string | null) ?? "system";
+  const orgName = j.payload.org_name as string | undefined;
+  const orgWebsite = j.payload.org_website as string | undefined;
+  const orgMarket = j.payload.org_market as string | undefined;
+
+  if (!orgName) {
+    const { data: org } = await admin.from("organisations").select("trading_name, website, primary_market").eq("id", orgId).single();
+    if (!org) throw new Error("Organisation not found");
+    return enrichOrganisationNews(j.workspace_id, userId, orgId, org.trading_name, org.website, org.primary_market, admin);
+  }
+  return enrichOrganisationNews(j.workspace_id, userId, orgId, orgName, orgWebsite, orgMarket, admin);
 }
 
 /** Internal reminders only — never sends. A previous approval does not authorise a follow-up. */

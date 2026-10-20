@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { runStructured } from "@/lib/ai/gateway";
 import { NISHAANA_CONTEXT, UNTRUSTED_DATA_RULE } from "@/lib/ai/agents/shared";
@@ -53,6 +54,8 @@ export async function enrichOrganisationNews(
   orgName: string,
   orgWebsite?: string | null,
   orgMarket?: string | null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client?: SupabaseClient<any>,
 ): Promise<NewsEnrichmentResult> {
   const res = await runStructured({
     workspaceId,
@@ -74,7 +77,7 @@ export async function enrichOrganisationNews(
   const seen = new Set(res.searchedUrls.map(normaliseUrlForCompare));
   const verified = res.data.articles.filter((a) => seen.has(normaliseUrlForCompare(a.url)));
 
-  const supabase = await createClient();
+  const supabase = client ?? await createClient();
 
   let inserted = 0;
   for (const article of verified) {

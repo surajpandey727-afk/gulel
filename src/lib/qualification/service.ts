@@ -1,4 +1,5 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { runStructured } from "@/lib/ai/gateway";
 import { QUALIFICATION_SYSTEM, QualificationAssessmentSchema } from "@/lib/ai/agents/qualification";
@@ -7,8 +8,9 @@ import { computeScore, heuristicPropensity, type DimensionInput, type DimensionK
 import { rankEmails, type EmailQuality } from "@/lib/contacts/email-quality";
 
 /** Everything an agent is allowed to know about an organisation. Used by qualification and governance. */
-export async function buildEvidencePackage(workspaceId: string, organisationId: string) {
-  const supabase = await createClient();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function buildEvidencePackage(workspaceId: string, organisationId: string, client?: SupabaseClient<any>) {
+  const supabase = client ?? await createClient();
   const [org, evidence, contacts, financials, conversations, suppression, risks] = await Promise.all([
     supabase.from("organisations").select("id, trading_name, legal_name, website, primary_domain, registration_number, primary_market, headquarters, incorporation_date, operating_status, sector, sub_sector, employee_count, employee_count_source, employee_count_as_of, description, needs, relationship_status, organisation_market_profiles(market, currency, presence)").eq("id", organisationId).eq("workspace_id", workspaceId).single(),
     supabase.from("evidence_items").select("id, claim_field, claim_text, fact_type, value_numeric, value_currency, value_as_of, source_name, source_url, published_at, retrieved_at, excerpt, confidence, is_adverse").eq("organisation_id", organisationId).eq("status", "active").order("retrieved_at", { ascending: false }).limit(80),
@@ -60,16 +62,25 @@ export async function buildEvidencePackage(workspaceId: string, organisationId: 
 }
 export type EvidencePackage = Awaited<ReturnType<typeof buildEvidencePackage>>;
 
-export async function runQualification(workspaceId: string, userId: string, organisationId: string) {
-  const supabase = await createClient();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function runQualification(workspaceId: string, userId: string, organisationId: string, client?: SupabaseClient<any>) {
+  const supabase = client ?? await createClient();
   const [pkg, { data: model }, { data: settings }] = await Promise.all([
-    buildEvidencePackage(workspaceId, organisationId),
+    buildEvidencePackage(workspaceId, organisationId, supabase),
     supabase.from("scoring_models").select("id, weights, bands, freshness_half_life_days").eq("workspace_id", workspaceId).eq("is_active", true).single(),
     supabase.from("workspace_settings").select("pricing_ranges").eq("workspace_id", workspaceId).single(),
   ]);
   if (!model) throw new Error("No active scoring model");
+
+  // If dossier is empty, queue enrichment jobs and score with available org-level data
   if (pkg.evidence.length === 0 && pkg.contacts.length === 0) {
-    throw new Error("Add at least one evidence item or contact before qualifying — the model will not score an empty dossier.");
+    const { enqueueJob: enqueue } = await import("@/lib/jobs/enqueue");
+    const org = pkg.organisation;
+    try { await enqueue(workspaceId, "people_discovery", { organisation_id: organisationId, user_id: userId }, { timeoutSeconds: 600 }); } catch { /* non-fatal */ }
+    try { await enqueue(workspaceId, "news_enrich", { organisation_id: organisationId, user_id: userId, org_name: org.trading_name, org_website: org.website, org_market: org.primary_market }); } catch { /* non-fatal */ }
+    if (org.primary_market === "UK") {
+      try { await enqueue(workspaceId, "companies_house", { organisation_id: organisationId, user_id: userId, registration_number: org.registration_number }); } catch { /* non-fatal */ }
+    }
   }
 
   const res = await runStructured({

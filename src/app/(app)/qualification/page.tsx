@@ -32,7 +32,7 @@ export default async function QualificationPage({ searchParams }: { searchParams
     <>
       <AnimatedPageHeader title="Qualification" description="Explainable scores with separate confidence, coverage, propensity and risk. Scores are operating thresholds, not validated classifications."
         actions={<><GlobalFilters showRange={false} /><BandFilter value={band} /></>} />
-      {!data?.length ? <EmptyState icon={<ListChecks className="h-5 w-5" />} title="Nothing qualified yet" body={`${unqualified ?? 0} organisations on file. Open a dossier, add evidence, and run qualification.`} /> : (
+      {!data?.length ? <EmptyState icon={<ListChecks className="h-5 w-5" />} title="Nothing qualified yet" body={`${unqualified ?? 0} organisations on file. Open a dossier and run qualification — Gulel will auto-enrich missing data.`} /> : (
         <Table>
           <thead><tr><Th>Organisation</Th><Th>Market</Th><Th className="text-right">Score</Th><Th>Band</Th><Th className="text-right">Coverage</Th><Th className="text-right">Confidence</Th><Th>Propensity*</Th><Th>Affordability</Th><Th>Unknowns</Th><Th>Risk</Th><Th>Scored</Th></tr></thead>
           <tbody>{data.map((r) => {
