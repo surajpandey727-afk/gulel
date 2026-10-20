@@ -6,7 +6,6 @@ import { addContact, addEvidence, createOrganisation } from "@/lib/orgs/service"
 import { overrideQualification, runQualification } from "@/lib/qualification/service";
 import { GatewayError } from "@/lib/ai/gateway";
 import { createClient } from "@/lib/supabase/server";
-import { enrichFromCompaniesHouse } from "@/lib/discovery/promote";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 
@@ -67,31 +66,13 @@ export async function createOrganisationAction(input: z.input<typeof CreateOrgSc
 }
 
 async function triggerEnrichmentPipeline(workspaceId: string, userId: string, orgId: string, input: z.infer<typeof CreateOrgSchema>) {
+  // Queue full enrichment pipeline as background jobs
+  try { await enqueueJob(workspaceId, "people_discovery", { organisation_id: orgId, user_id: userId }, { timeoutSeconds: 600 }); } catch { /* non-fatal */ }
+  try { await enqueueJob(workspaceId, "news_enrich", { organisation_id: orgId, user_id: userId, org_name: input.trading_name, org_website: input.website, org_market: input.primary_market }); } catch { /* non-fatal */ }
   if (input.primary_market === "UK" && companiesHouseConfigured()) {
-    try {
-      const jobId = await enqueueJob(workspaceId, "companies_house", { organisation_id: orgId, registration_number: input.registration_number });
-      try {
-        await enrichFromCompaniesHouse(workspaceId, userId, orgId, input.registration_number || undefined);
-        const admin = (await import("@/lib/supabase/admin")).createAdminClient();
-        await admin.rpc("finish_job", { p_job_id: jobId, p_ok: true, p_result: {}, p_error: null, p_cost: 0 });
-      } catch (e) {
-        const admin = (await import("@/lib/supabase/admin")).createAdminClient();
-        await admin.rpc("finish_job", { p_job_id: jobId, p_ok: false, p_result: null, p_error: (e as Error).message, p_cost: 0 });
-      }
-    } catch { /* non-fatal */ }
+    try { await enqueueJob(workspaceId, "companies_house", { organisation_id: orgId, user_id: userId, registration_number: input.registration_number }); } catch { /* non-fatal */ }
   }
-
-  try {
-    const jobId = await enqueueJob(workspaceId, "qualification", { organisation_id: orgId });
-    try {
-      await runQualification(workspaceId, userId, orgId);
-      const admin = (await import("@/lib/supabase/admin")).createAdminClient();
-      await admin.rpc("finish_job", { p_job_id: jobId, p_ok: true, p_result: {}, p_error: null, p_cost: 0 });
-    } catch (e) {
-      const admin = (await import("@/lib/supabase/admin")).createAdminClient();
-      await admin.rpc("finish_job", { p_job_id: jobId, p_ok: false, p_result: null, p_error: (e as Error).message, p_cost: 0 });
-    }
-  } catch { /* non-fatal */ }
+  try { await enqueueJob(workspaceId, "qualification", { organisation_id: orgId, user_id: userId }); } catch { /* non-fatal */ }
 }
 
 const ContactSchema = z.object({
