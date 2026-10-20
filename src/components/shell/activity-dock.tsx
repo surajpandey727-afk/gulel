@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Activity, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle,
-  Loader2, Clock, X, Play, RefreshCw,
+  Loader2, Clock, X, Play, RefreshCw, ChevronRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/components/neo/cn";
@@ -16,6 +16,11 @@ type JobRow = {
   attempts: number;
   max_attempts: number;
   last_error: string | null;
+  payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  cost_usd: number | null;
+  locked_by: string | null;
+  finished_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -71,10 +76,10 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
   const fetchJobs = useCallback(async () => {
     const { data } = await supabaseRef.current
       .from("jobs")
-      .select("id, type, status, attempts, max_attempts, last_error, created_at, updated_at")
+      .select("id, type, status, attempts, max_attempts, last_error, payload, result, cost_usd, locked_by, finished_at, created_at, updated_at")
       .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
-      .limit(15);
+      .limit(30);
     if (data) setJobs(data as JobRow[]);
     setLoading(false);
   }, [workspaceId]);
@@ -94,6 +99,8 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
     return () => { supabaseRef.current.removeChannel(channel); };
   }, [workspaceId, fetchJobs]);
 
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
+
   const activeCount = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
   const failedCount = jobs.filter((j) => j.status === "failed" || j.status === "dead_letter").length;
 
@@ -106,6 +113,8 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
     fetchJobs();
   };
 
+  const toggleJob = (id: string) => setExpandedJob((prev) => (prev === id ? null : id));
+
   return (
     <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 lg:bottom-6 lg:right-6" style={{ maxHeight: "calc(100dvh - 8rem)" }}>
       <AnimatePresence>
@@ -115,7 +124,7 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.33, 1, 0.68, 1] }}
-            className="w-80 max-h-[420px] overflow-hidden rounded-neo-lg neo-raised-lg bg-surface"
+            className="w-96 max-h-[520px] overflow-hidden rounded-neo-lg neo-raised-lg bg-surface"
           >
             <header className="flex items-center justify-between border-b border-rule px-4 py-3">
               <h3 className="text-sm font-semibold text-ink">Activity</h3>
@@ -136,7 +145,7 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
               </div>
             </header>
 
-            <div className="overflow-y-auto max-h-[360px] divide-y divide-rule/50">
+            <div className="overflow-y-auto max-h-[460px] divide-y divide-rule/50">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-ink-3" />
@@ -146,32 +155,114 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
               ) : (
                 jobs.map((job) => {
                   const Icon = STATUS_ICON[job.status] ?? Clock;
+                  const isOpen = expandedJob === job.id;
                   return (
-                    <div key={job.id} className="flex items-start gap-3 px-4 py-2.5 hover:bg-sunken/30 transition-colors">
-                      <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", STATUS_COLOR[job.status])} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-medium text-ink">
-                            {TYPE_LABEL[job.type] ?? job.type}
-                          </span>
-                          <span className="shrink-0 text-[0.6rem] text-ink-3">
-                            {timeAgo(job.updated_at)}
-                          </span>
+                    <div key={job.id} className="transition-colors">
+                      <button
+                        onClick={() => toggleJob(job.id)}
+                        className="flex w-full items-start gap-3 px-4 py-2.5 hover:bg-sunken/30 text-left"
+                      >
+                        <ChevronRight className={cn("mt-0.5 h-3 w-3 shrink-0 text-ink-3 transition-transform", isOpen && "rotate-90")} />
+                        <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", STATUS_COLOR[job.status])} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-xs font-medium text-ink">
+                              {TYPE_LABEL[job.type] ?? job.type}
+                            </span>
+                            <span className="shrink-0 text-[0.6rem] text-ink-3">
+                              {timeAgo(job.updated_at)}
+                            </span>
+                          </div>
+                          {!isOpen && job.last_error && (
+                            <p className="mt-0.5 truncate text-[0.65rem] text-oxblood" title={job.last_error}>
+                              {job.last_error}
+                            </p>
+                          )}
                         </div>
-                        {job.last_error && (
-                          <p className="mt-0.5 truncate text-[0.65rem] text-oxblood" title={job.last_error}>
-                            {job.last_error}
-                          </p>
-                        )}
-                        {(job.status === "failed" || job.status === "dead_letter") && (
-                          <button
-                            onClick={() => handleRetry(job.id)}
-                            className="mt-1 inline-flex items-center gap-1 text-[0.65rem] font-medium text-ink-2 hover:text-ink transition-colors"
+                      </button>
+
+                      <AnimatePresence>
+                        {isOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
                           >
-                            <RefreshCw className="h-2.5 w-2.5" /> Retry
-                          </button>
+                            <div className="mx-4 mb-3 rounded-neo bg-sunken/40 p-3 space-y-2 text-[0.65rem]">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-ink-2">Status</span>
+                                <span className={cn("font-semibold", STATUS_COLOR[job.status]?.replace(" animate-spin", ""))}>
+                                  {job.status}{job.attempts > 0 ? ` (attempt ${job.attempts}/${job.max_attempts})` : ""}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-ink-2">Created</span>
+                                <span className="text-ink-3">{new Date(job.created_at).toLocaleString()}</span>
+                              </div>
+
+                              {job.finished_at && (
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-ink-2">Finished</span>
+                                  <span className="text-ink-3">{new Date(job.finished_at).toLocaleString()}</span>
+                                </div>
+                              )}
+
+                              {job.locked_by && (
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-ink-2">Worker</span>
+                                  <span className="text-ink-3">{job.locked_by}</span>
+                                </div>
+                              )}
+
+                              {job.cost_usd != null && job.cost_usd > 0 && (
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-ink-2">Cost</span>
+                                  <span className="text-ink-3">${job.cost_usd.toFixed(4)}</span>
+                                </div>
+                              )}
+
+                              {job.payload && Object.keys(job.payload).length > 0 && (
+                                <div>
+                                  <span className="font-medium text-ink-2">Payload</span>
+                                  <pre className="mt-1 overflow-x-auto rounded bg-surface p-2 text-[0.6rem] text-ink-3 leading-relaxed">
+                                    {JSON.stringify(job.payload, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {job.last_error && (
+                                <div>
+                                  <span className="font-medium text-oxblood">Error</span>
+                                  <pre className="mt-1 overflow-x-auto rounded bg-surface p-2 text-[0.6rem] text-oxblood/80 leading-relaxed whitespace-pre-wrap break-words">
+                                    {job.last_error}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {job.result && Object.keys(job.result).length > 0 && (
+                                <div>
+                                  <span className="font-medium text-positive">Result</span>
+                                  <pre className="mt-1 overflow-x-auto rounded bg-surface p-2 text-[0.6rem] text-ink-3 leading-relaxed">
+                                    {JSON.stringify(job.result, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {(job.status === "failed" || job.status === "dead_letter") && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRetry(job.id); }}
+                                  className="mt-1 inline-flex items-center gap-1 text-[0.65rem] font-medium text-ink-2 hover:text-ink transition-colors"
+                                >
+                                  <RefreshCw className="h-2.5 w-2.5" /> Retry this job
+                                </button>
+                              )}
+                            </div>
+                          </motion.div>
                         )}
-                      </div>
+                      </AnimatePresence>
                     </div>
                   );
                 })
