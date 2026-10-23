@@ -9,6 +9,7 @@ import { Copilot } from "@/components/copilot/copilot";
 import { CommandPalette, SearchTrigger } from "@/components/shell/command-palette";
 import { ThemeProvider } from "@/components/shell/theme-provider";
 import { ActivityDock } from "@/components/shell/activity-dock";
+import { NavProgress } from "@/components/shell/nav-progress";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -47,6 +48,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Copilot />
         </Suspense>
         <ActivityDock workspaceId={session.workspaceId} />
+        <Suspense>
+          <NavProgress />
+        </Suspense>
       </div>
     </ThemeProvider>
   );
