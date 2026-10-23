@@ -1,39 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LatticeLoader } from "@/components/reactbits/lattice-loader";
-
-const DELAY_MS = 100;
 
 export function NavProgress() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [show, setShow] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "done">("idle");
   const navKey = useRef("");
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const key = pathname + "?" + searchParams.toString();
-    if (navKey.current && key !== navKey.current) {
-      setShow(false);
-      if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (navKey.current && key !== navKey.current && state === "loading") {
+      setState("done");
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => setState("idle"), 300);
     }
     navKey.current = key;
-  }, [pathname, searchParams]);
-
-  useEffect(() => {
-    const handler = () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setShow(true), DELAY_MS);
-    };
-
-    document.addEventListener("nav:start", handler);
-    return () => {
-      document.removeEventListener("nav:start", handler);
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  }, [pathname, searchParams, state]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -43,25 +28,43 @@ export function NavProgress() {
       if (!href || href.startsWith("http") || href.startsWith("#") || href.startsWith("mailto:")) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (anchor.getAttribute("target") === "_blank") return;
-      const current = pathname + "?" + searchParams.toString();
       const nextPath = href.split("?")[0];
       if (nextPath === pathname) return;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setShow(true), DELAY_MS);
+      setState("loading");
+      if (hideTimer.current) clearTimeout(hideTimer.current);
     };
 
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [pathname, searchParams]);
+  }, [pathname]);
 
-  if (!show) return null;
+  useEffect(() => {
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  }, []);
+
+  if (state === "idle") return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] pointer-events-none flex items-center justify-center animate-in fade-in duration-150">
-      <div className="pointer-events-auto rounded-neo-lg neo-raised bg-canvas/95 px-5 py-4 shadow-xl backdrop-blur-sm flex items-center gap-3">
-        <LatticeLoader size={24} className="text-oxblood" />
-        <span className="text-sm text-ink-2 font-medium">Loading…</span>
-      </div>
+    <div className="fixed top-0 left-0 right-0 z-[9999] h-[3px]">
+      <div
+        className={
+          state === "loading"
+            ? "h-full bg-oxblood rounded-r-full animate-progress-bar"
+            : "h-full bg-oxblood rounded-r-full w-full transition-all duration-200"
+        }
+      />
+      <style>{`
+        @keyframes progress-bar {
+          0% { width: 0%; }
+          20% { width: 30%; }
+          50% { width: 60%; }
+          80% { width: 85%; }
+          100% { width: 95%; }
+        }
+        .animate-progress-bar {
+          animation: progress-bar 2s ease-out forwards;
+        }
+      `}</style>
     </div>
   );
 }
