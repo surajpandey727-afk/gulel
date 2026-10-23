@@ -13,6 +13,7 @@ import { Gauge, Meter } from "@/components/neo/gauge";
 import { EmptyState, Panel } from "@/components/neo/surface";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { DossierTabs } from "./dossier-tabs";
+import { DossierShell, DossierPanel } from "./dossier-shell";
 import { CompaniesHouseEnrich } from "./ch-enrich";
 import { NewsEnrich } from "./news-enrich";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
@@ -55,9 +56,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: data?.trading_name ?? "Organisation" };
 }
 
-export default async function DossierPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
+export default async function DossierPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { tab = "summary" } = await searchParams;
   const session = await getSession();
   const supabase = await createClient();
   const ws = session.workspaceId;
@@ -100,7 +100,7 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
   ];
 
   return (
-    <>
+    <DossierShell defaultTab="summary">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <Link href="/organisations" className="text-xs text-ink-3 hover:text-ink">← Organisations</Link>
@@ -123,10 +123,10 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
         </div>
       </header>
 
-      <DossierTabs tabs={tabs} active={tab} />
+      <DossierTabs tabs={tabs} />
 
       <div className="mt-5">
-        {tab === "summary" && (
+        <DossierPanel name="summary">
           <div className="grid gap-6 xl:grid-cols-3">
             <Panel title="Qualification" eyebrow={cur ? `v${cur.version_no} · ${relTime(cur.created_at)}` : "Not yet qualified"} className="xl:col-span-1"
               actions={cur ? <OverrideButton organisationId={id} qualificationId={cur.id} current={curScore!} /> : null}>
@@ -200,9 +200,9 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
               <div className="mt-4"><EvidenceList items={byGroup("identity.").concat(byGroup("diligence."))} empty="No identity evidence yet" /></div>
             </Panel>
           </div>
-        )}
+        </DossierPanel>
 
-        {tab === "financials" && (
+        <DossierPanel name="financials">
           <Panel title="Financial standing" eyebrow={`Values in original currency · ${currency} market`}>
             {(financials ?? []).length ? (
               <Table>
@@ -214,12 +214,12 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
               </Table>
             ) : <EmptyState title="No financial evidence" body="Estimates are stored as third-party estimates and never shown as verified facts. Companies House and MCA adapters arrive in Phase 2." />}
           </Panel>
-        )}
+        </DossierPanel>
 
-        {tab === "brand" && <Panel title="Brand & commercial analysis"><EvidenceList items={byGroup("brand.").concat(byGroup("commercial."))} empty="No brand or commercial observations yet" /></Panel>}
-        {tab === "signals" && <Panel title="Buying signals" eyebrow="Signals carry strength and uncertainty — not proof of buying"><EvidenceList items={byGroup("signal.")} empty="No signals recorded" /></Panel>}
+        <DossierPanel name="brand"><Panel title="Brand & commercial analysis"><EvidenceList items={byGroup("brand.").concat(byGroup("commercial."))} empty="No brand or commercial observations yet" /></Panel></DossierPanel>
+        <DossierPanel name="signals"><Panel title="Buying signals" eyebrow="Signals carry strength and uncertainty — not proof of buying"><EvidenceList items={byGroup("signal.")} empty="No signals recorded" /></Panel></DossierPanel>
 
-        {tab === "news" && (
+        <DossierPanel name="news">
           <Panel title="Latest relevant news" eyebrow={`${newsTop.length} of up to 3 · independent sources prioritised`} actions={<NewsEnrich organisationId={id} orgName={org.trading_name} orgWebsite={org.website} orgMarket={org.primary_market} />}>
             {newsTop.length ? (
               <ul className="grid gap-4 md:grid-cols-3">{newsTop.map((n) => (
@@ -233,9 +233,9 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
                 </li>))}</ul>
             ) : <EmptyState title="No articles recorded" body="Add news as evidence (type “News”). Fewer than three is shown as the actual number found — no articles are invented." />}
           </Panel>
-        )}
+        </DossierPanel>
 
-        {tab === "people" && (
+        <DossierPanel name="people">
           <Panel title="People & decision-makers" eyebrow="Named people ranked above generic inboxes" actions={<span className="flex items-center gap-2"><FindPeopleButton organisationId={id} /><AddContactButton organisationId={id} market={org.primary_market} /></span>}>
             {(people ?? []).length ? (
               <ul className="flex flex-col gap-3">
@@ -268,9 +268,9 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
               </ul>
             ) : <EmptyState title="No people yet" body="Add the relevant buyer — founder, CMO, CCO, brand or strategy lead — rather than generic seniority." />}
           </Panel>
-        )}
+        </DossierPanel>
 
-        {tab === "outreach" && (
+        <DossierPanel name="outreach">
           <div className="grid gap-6 lg:grid-cols-2">
             <Panel title="Governance decisions" eyebrow="Is outreach justified?">
               {(strategies ?? []).length ? (
@@ -295,9 +295,9 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
               ) : <EmptyState title="No drafts" />}
             </Panel>
           </div>
-        )}
+        </DossierPanel>
 
-        {tab === "timeline" && (
+        <DossierPanel name="timeline">
           <Panel title="Timeline" eyebrow="Research, outreach and relationship events">
             <ol className="relative flex flex-col gap-4 border-l border-hairline pl-5">
               {[
@@ -313,9 +313,9 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
               ))}
             </ol>
           </Panel>
-        )}
+        </DossierPanel>
 
-        {tab === "evidence" && (
+        <DossierPanel name="evidence">
           <Panel title="All evidence" eyebrow="Every substantive claim with provenance" actions={<AddEvidenceButton organisationId={id} currency={currency} small />}>
             {ev.length ? (
               <Table>
@@ -329,8 +329,8 @@ export default async function DossierPage({ params, searchParams }: { params: Pr
               </Table>
             ) : <EmptyState title="No evidence yet" body="Add sourced claims. Inferences are allowed but labelled as such." />}
           </Panel>
-        )}
+        </DossierPanel>
       </div>
-    </>
+    </DossierShell>
   );
 }

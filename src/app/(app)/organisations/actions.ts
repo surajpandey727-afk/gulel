@@ -191,6 +191,44 @@ export async function discoverPeopleAllAction(): Promise<ActionResult<{ queued: 
   return { ok: true, data: { queued }, message: `People discovery queued for ${queued} organisation(s). Check Activity for progress.` };
 }
 
+export async function enrichAllOrgsAction(): Promise<ActionResult<{ queued: number; orgs: number }>> {
+  const s = await getSession();
+  const supabase = await createClient();
+  const { data: orgs } = await supabase.from("organisations")
+    .select("id, trading_name, website, primary_market")
+    .eq("workspace_id", s.workspaceId)
+    .is("deleted_at", null);
+  if (!orgs?.length) return { ok: false, error: "No organisations in your workspace." };
+
+  let queued = 0;
+  for (const org of orgs) {
+    try { await enqueueJob(s.workspaceId, "people_discovery", { organisation_id: org.id, user_id: s.userId }, { timeoutSeconds: 600 }); queued++; } catch { /* skip */ }
+    if (org.website) {
+      try { await enqueueJob(s.workspaceId, "news_enrich", { organisation_id: org.id, user_id: s.userId, org_name: org.trading_name, org_website: org.website, org_market: org.primary_market }); queued++; } catch { /* skip */ }
+    }
+    if (org.primary_market === "UK" && companiesHouseConfigured()) {
+      try { await enqueueJob(s.workspaceId, "companies_house", { organisation_id: org.id, user_id: s.userId }); queued++; } catch { /* skip */ }
+    }
+    try { await enqueueJob(s.workspaceId, "qualification", { organisation_id: org.id, user_id: s.userId }); queued++; } catch { /* skip */ }
+  }
+
+  revalidatePath("/organisations");
+  return { ok: true, data: { queued, orgs: orgs.length }, message: `Full enrichment queued: ${queued} jobs across ${orgs.length} organisation(s). Check Activity for progress.` };
+}
+
+export async function retryFailedJobsAction(): Promise<ActionResult<{ retried: number }>> {
+  const s = await getSession();
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("jobs")
+    .update({ status: "queued" as const, attempts: 0, last_error: null, run_after: new Date().toISOString() })
+    .eq("workspace_id", s.workspaceId)
+    .in("status", ["failed", "dead_letter"])
+    .select("id");
+  if (error) return fail(error);
+  revalidatePath("/organisations");
+  return { ok: true, data: { retried: data?.length ?? 0 }, message: `${data?.length ?? 0} failed job(s) retried.` };
+}
+
 export async function runQualificationAction(organisationId: string): Promise<ActionResult<{ score: number; band: string }>> {
   const s = await getSession();
   try {
