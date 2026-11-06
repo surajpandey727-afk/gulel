@@ -30,7 +30,7 @@ export const LinkedInOrgSchema = z.object({
   trading_name: z.string().catch("Unknown"),
   legal_name: z.string().nullable().optional().default(null),
   website: z.string().nullable().optional().default(null),
-  headquarters: z.union([z.string(), z.record(z.unknown()).transform((o) => [o.city, o.region, o.country].filter(Boolean).join(", ") || null)]).nullable().optional().default(null),
+  headquarters: z.union([z.string(), z.record(z.string(), z.unknown()).transform((o) => [(o as Record<string, unknown>).city, (o as Record<string, unknown>).region, (o as Record<string, unknown>).country].filter(Boolean).join(", ") || null)]).nullable().optional().default(null),
   sector: z.string().nullable().optional().default(null),
   sub_sector: z.string().nullable().optional().default(null),
   employee_count: coerceNumber,
