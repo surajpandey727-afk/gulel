@@ -12,7 +12,7 @@ import { lookupLinkedInOrg } from "@/lib/discovery/linkedin-lookup";
 import { addContact, createOrganisation } from "@/lib/orgs/service";
 import { discoverPeople } from "@/lib/discovery/people-discovery";
 import { enrichOrganisationNews } from "@/lib/discovery/news";
-import { enqueueJob } from "@/lib/jobs/enqueue";
+import { enqueueJob, kickTick } from "@/lib/jobs/enqueue";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
 
@@ -54,29 +54,31 @@ async function schedule() {
 export async function tick(worker = "web") {
   await schedule().catch(() => undefined);
   const admin = createAdminClient();
-  const allResults: Array<{ id: string; type: string; ok: boolean; error?: string }> = [];
+  const results: Array<{ id: string; type: string; ok: boolean; error?: string }> = [];
 
-  // Loop until no more jobs to claim (max 10 rounds to stay within Vercel function timeout)
-  for (let round = 0; round < 10; round++) {
-    const { data: jobs, error } = await admin.rpc("claim_jobs", { p_worker: worker, p_limit: 5 });
-    if (error) throw new Error(error.message);
-    if (!jobs || jobs.length === 0) break;
+  const { data: jobs, error } = await admin.rpc("claim_jobs", { p_worker: worker, p_limit: 3 });
+  if (error) throw new Error(error.message);
 
-    for (const j of jobs as Job[]) {
-      const handler = HANDLERS[j.type];
-      try {
-        if (!handler) throw new Error(`No handler for job type ${j.type}`);
-        const result = await handler(j);
-        await admin.rpc("finish_job", { p_job_id: j.id, p_ok: true, p_result: (result ?? {}) as object, p_error: null, p_cost: 0 });
-        allResults.push({ id: j.id, type: j.type, ok: true });
-      } catch (e) {
-        const msg = redact((e as Error).message ?? String(e)).slice(0, 2000);
-        await admin.rpc("finish_job", { p_job_id: j.id, p_ok: false, p_result: null, p_error: msg, p_cost: 0 });
-        allResults.push({ id: j.id, type: j.type, ok: false, error: msg });
-      }
+  for (const j of (jobs ?? []) as Job[]) {
+    const handler = HANDLERS[j.type];
+    try {
+      if (!handler) throw new Error(`No handler for job type ${j.type}`);
+      const result = await handler(j);
+      await admin.rpc("finish_job", { p_job_id: j.id, p_ok: true, p_result: (result ?? {}) as object, p_error: null, p_cost: 0 });
+      results.push({ id: j.id, type: j.type, ok: true });
+    } catch (e) {
+      const msg = redact((e as Error).message ?? String(e)).slice(0, 2000);
+      await admin.rpc("finish_job", { p_job_id: j.id, p_ok: false, p_result: null, p_error: msg, p_cost: 0 });
+      results.push({ id: j.id, type: j.type, ok: false, error: msg });
     }
   }
-  return allResults;
+
+  // If we processed jobs and there may be more, chain another tick
+  if (results.length > 0) {
+    kickTick().catch(() => {});
+  }
+
+  return results;
 }
 
 async function runLinkedInLookup(j: Job) {
