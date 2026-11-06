@@ -4,6 +4,7 @@ import { sourceAvailability } from "@/lib/discovery/service";
 import { AnimatedPageHeader } from "@/components/reactbits/animated-header";
 import { ButtonLink } from "@/components/neo/button";
 import { NewOrganisationButton } from "../organisations/new-organisation";
+import { BulkDiscoverButton } from "../organisations/bulk-discover";
 import { DiscoveryCentre } from "./centre";
 
 export const metadata = { title: "Discovery" };
@@ -21,7 +22,7 @@ export default async function DiscoveryPage() {
   return (
     <>
       <AnimatedPageHeader title="Discovery" description="Named campaigns search authorised sources for organisations showing credible advisory need. Signals land here for your review — nothing reaches outreach without you."
-        actions={<><ButtonLink href="/data">Import workbook</ButtonLink><NewOrganisationButton /></>} />
+        actions={<><ButtonLink href="/data">Import workbook</ButtonLink><BulkDiscoverButton /><NewOrganisationButton /></>} />
       <DiscoveryCentre campaigns={(campaigns ?? []) as never} icps={(icps ?? []) as never} signals={(signals ?? []) as never} runs={(runs ?? []) as never} availability={sourceAvailability()} />
     </>
   );
