@@ -54,23 +54,29 @@ async function schedule() {
 export async function tick(worker = "web") {
   await schedule().catch(() => undefined);
   const admin = createAdminClient();
-  const { data: jobs, error } = await admin.rpc("claim_jobs", { p_worker: worker, p_limit: 5 });
-  if (error) throw new Error(error.message);
-  const results: Array<{ id: string; type: string; ok: boolean; error?: string }> = [];
-  for (const j of (jobs ?? []) as Job[]) {
-    const handler = HANDLERS[j.type];
-    try {
-      if (!handler) throw new Error(`No handler for job type ${j.type}`);
-      const result = await handler(j);
-      await admin.rpc("finish_job", { p_job_id: j.id, p_ok: true, p_result: (result ?? {}) as object, p_error: null, p_cost: 0 });
-      results.push({ id: j.id, type: j.type, ok: true });
-    } catch (e) {
-      const msg = redact((e as Error).message ?? String(e)).slice(0, 2000);
-      await admin.rpc("finish_job", { p_job_id: j.id, p_ok: false, p_result: null, p_error: msg, p_cost: 0 });
-      results.push({ id: j.id, type: j.type, ok: false, error: msg });
+  const allResults: Array<{ id: string; type: string; ok: boolean; error?: string }> = [];
+
+  // Loop until no more jobs to claim (max 10 rounds to stay within Vercel function timeout)
+  for (let round = 0; round < 10; round++) {
+    const { data: jobs, error } = await admin.rpc("claim_jobs", { p_worker: worker, p_limit: 5 });
+    if (error) throw new Error(error.message);
+    if (!jobs || jobs.length === 0) break;
+
+    for (const j of jobs as Job[]) {
+      const handler = HANDLERS[j.type];
+      try {
+        if (!handler) throw new Error(`No handler for job type ${j.type}`);
+        const result = await handler(j);
+        await admin.rpc("finish_job", { p_job_id: j.id, p_ok: true, p_result: (result ?? {}) as object, p_error: null, p_cost: 0 });
+        allResults.push({ id: j.id, type: j.type, ok: true });
+      } catch (e) {
+        const msg = redact((e as Error).message ?? String(e)).slice(0, 2000);
+        await admin.rpc("finish_job", { p_job_id: j.id, p_ok: false, p_result: null, p_error: msg, p_cost: 0 });
+        allResults.push({ id: j.id, type: j.type, ok: false, error: msg });
+      }
     }
   }
-  return results;
+  return allResults;
 }
 
 async function runLinkedInLookup(j: Job) {
