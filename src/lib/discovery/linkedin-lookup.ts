@@ -18,6 +18,11 @@ export function normalizeAiOutput(raw: unknown): unknown {
   if (!o.sector) o.sector = o.industry;
   if (!o.incorporation_year && o.founded_year) o.incorporation_year = String(o.founded_year);
   if (!o.linkedin_url && typeof nested?.linkedin_url === "string") o.linkedin_url = nested.linkedin_url;
+  // Flatten headquarters object to string
+  if (typeof o.headquarters === "object" && o.headquarters !== null) {
+    const hq = o.headquarters as Record<string, unknown>;
+    o.headquarters = [hq.city, hq.region, hq.country].filter(Boolean).join(", ") || null;
+  }
   return o;
 }
 
@@ -25,7 +30,7 @@ export const LinkedInOrgSchema = z.object({
   trading_name: z.string().catch("Unknown"),
   legal_name: z.string().nullable().optional().default(null),
   website: z.string().nullable().optional().default(null),
-  headquarters: z.string().nullable().optional().default(null),
+  headquarters: z.union([z.string(), z.record(z.unknown()).transform((o) => [o.city, o.region, o.country].filter(Boolean).join(", ") || null)]).nullable().optional().default(null),
   sector: z.string().nullable().optional().default(null),
   sub_sector: z.string().nullable().optional().default(null),
   employee_count: coerceNumber,
