@@ -67,6 +67,20 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+function groupByDate(jobs: JobRow[]): { label: string; items: JobRow[] }[] {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterdayStart = todayStart - 86400000;
+  const groups: Record<string, JobRow[]> = {};
+  for (const job of jobs) {
+    const t = new Date(job.updated_at).getTime();
+    const label = t >= todayStart ? "Today" : t >= yesterdayStart ? "Yesterday" : "Older";
+    (groups[label] ??= []).push(job);
+  }
+  const order = ["Today", "Yesterday", "Older"];
+  return order.filter((l) => groups[l]?.length).map((l) => ({ label: l, items: groups[l] }));
+}
+
 export function ActivityDock({ workspaceId }: { workspaceId: string }) {
   const [expanded, setExpanded] = useState(false);
   const [jobs, setJobs] = useState<JobRow[]>([]);
@@ -79,7 +93,7 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
       .select("id, type, status, attempts, max_attempts, last_error, payload, result, cost_usd, locked_by, finished_at, created_at, updated_at")
       .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
-      .limit(30);
+      .limit(50);
     if (data) setJobs(data as JobRow[]);
     setLoading(false);
   }, [workspaceId]);
@@ -145,7 +159,7 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
               </div>
             </header>
 
-            <div className="overflow-y-auto max-h-[460px] divide-y divide-rule/50">
+            <div className="overflow-y-auto max-h-[460px]">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-ink-3" />
@@ -153,7 +167,12 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
               ) : jobs.length === 0 ? (
                 <p className="py-8 text-center text-sm text-ink-3">No recent jobs</p>
               ) : (
-                jobs.map((job) => {
+                groupByDate(jobs).map(({ label, items }) => (
+                  <div key={label}>
+                    <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-rule/50 px-4 py-1.5">
+                      <span className="text-[0.6rem] font-semibold uppercase tracking-wider text-ink-3">{label}</span>
+                    </div>
+                    {items.map((job) => {
                   const Icon = STATUS_ICON[job.status] ?? Clock;
                   const isOpen = expandedJob === job.id;
                   return (
@@ -265,7 +284,9 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
                       </AnimatePresence>
                     </div>
                   );
-                })
+                })}
+                  </div>
+                ))
               )}
             </div>
           </motion.div>
