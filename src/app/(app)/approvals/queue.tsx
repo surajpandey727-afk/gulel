@@ -9,6 +9,7 @@ import { Segmented } from "@/components/neo/segmented";
 import { Badge, MarketBadge, StatusBadge } from "@/components/neo/badge";
 import { EmptyState } from "@/components/neo/surface";
 import { cn } from "@/components/neo/cn";
+import { showActionResult } from "@/lib/toast";
 import { approveBatchAction, decideApprovalAction } from "../outreach/actions";
 
 export interface QueueItem {
@@ -37,7 +38,9 @@ export function ApprovalQueue({ items, status, focus, canApprove }: { items: Que
     start(async () => {
       setMsg(null);
       const r = await decideApprovalAction(id, d);
-      setMsg(r.ok ? `${d === "approve" ? "Approved" : d === "reject" ? "Rejected" : "Snoozed"}.` : `⚠ ${r.error}`);
+      const label = d === "approve" ? "Approved" : d === "reject" ? "Rejected" : "Snoozed";
+      showActionResult(r, label);
+      setMsg(r.ok ? `${label}.` : `⚠ ${r.error}`);
       router.refresh();
     });
 
@@ -118,6 +121,7 @@ export function ApprovalQueue({ items, status, focus, canApprove }: { items: Que
       <Modal open={confirm} onOpenChange={setConfirm} title="Approve selected" description="Only eligible, individually reviewable messages are approved. Approval does not send — each send is still triggered and re-checked by the gateway."
         footer={<><Button onClick={() => setConfirm(false)}>Cancel</Button><Button variant="primary" disabled={!eligible.length} loading={pending} onClick={() => start(async () => {
           const r = await approveBatchAction(eligible.map((e) => e.id));
+          showActionResult(r, `Approved ${r.ok ? r.data!.approved.length : 0}`);
           setMsg(r.ok ? `Approved ${r.data!.approved.length}. ${r.data!.blocked.length ? `${r.data!.blocked.length} refused by the database (changed since review).` : ""}` : `⚠ ${r.error}`);
           setSelected(new Set()); setConfirm(false); router.refresh();
         })}>Approve {eligible.length}</Button></>}>

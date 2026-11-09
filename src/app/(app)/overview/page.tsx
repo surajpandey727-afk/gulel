@@ -92,8 +92,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
       <div className="grid gap-6 xl:grid-cols-3">
         {/* Left column — spans 2 */}
         <div className="flex flex-col gap-6 xl:col-span-2">
-          {/* Chanakya executive summary */}
-          <Panel title="Chanakya summary" eyebrow="Strategic intelligence" id="chanakya">
+          {/* Executive summary from qualification data */}
+          <Panel title="Executive summary" eyebrow="Qualification highlights" id="chanakya">
             <div className="flex flex-col gap-3 text-sm text-ink-2">
               {best.data?.length ? (
                 <>
@@ -107,7 +107,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
                   </p>
                 </>
               ) : (
-                <p className="text-ink-3">Import data or discover organisations to get strategic recommendations from Chanakya.</p>
+                <p className="text-ink-3">Import data or discover organisations to see qualification highlights here.</p>
               )}
             </div>
           </Panel>

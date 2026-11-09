@@ -11,6 +11,7 @@ import { Badge, StatusBadge } from "@/components/neo/badge";
 import { EmptyState, Panel } from "@/components/neo/surface";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { splitList } from "@/lib/discovery/filters";
+import { showActionResult } from "@/lib/toast";
 import { dismissSignalAction, promoteSignalAction, runCampaignAction, saveCampaignAction, saveIcpAction } from "./actions";
 
 type Campaign = { id: string; name: string; market: "UK" | "IN" | "BOTH"; icp_id: string | null; sources: string[]; frequency: "manual" | "daily" | "weekly"; max_leads_per_run: number; max_spend_usd: number; min_score: number; status: "draft" | "active" | "paused"; last_run_at: string | null; config: Record<string, unknown> };
@@ -55,6 +56,7 @@ export function DiscoveryCentre({ campaigns, icps, signals, runs, availability }
                 <Button size="sm" loading={pending} onClick={() => start(async () => {
                   setMsg(null);
                   const r = await runCampaignAction(c.id);
+                  showActionResult(r, r.ok ? `${r.data!.newSignals} new signal(s)` : undefined);
                   if (!r.ok) setMsg(`⚠ ${r.error}`);
                   else setMsg(`Run ${r.data!.status}: ${r.data!.newSignals} new signal(s). ${Object.entries(r.data!.perSource).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v.status}${v.error ? ` (${v.error})` : ""}`).join(" · ")}`);
                   router.refresh();

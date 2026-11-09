@@ -8,6 +8,7 @@ import { Field, Input, Select, Textarea } from "@/components/neo/field";
 import { Segmented } from "@/components/neo/segmented";
 import { Badge } from "@/components/neo/badge";
 import { CLAIM_FIELDS } from "@/lib/orgs/constants";
+import { showActionResult } from "@/lib/toast";
 import { addContactAction, addEvidenceAction, findPeopleAction, overrideQualificationAction, rediscoverOrganisationAction, reviewRiskFlagAction, runQualificationAction, suppressAction } from "../actions";
 import { prepareOutreachAction } from "../../outreach/actions";
 
@@ -22,7 +23,7 @@ export function RunQualificationButton({ organisationId, hasQualification }: { o
   const { pending, error, start, router, setError } = useAction();
   return (
     <span className="flex flex-col items-end gap-1">
-      <Button loading={pending} onClick={() => start(async () => { setError(null); const r = await runQualificationAction(organisationId); if (!r.ok) setError(r.error); else router.refresh(); })}>
+      <Button loading={pending} onClick={() => start(async () => { setError(null); const r = await runQualificationAction(organisationId); showActionResult(r, "Qualification complete"); if (!r.ok) setError(r.error); else router.refresh(); })}>
         <RefreshCcw className="h-4 w-4" /> {hasQualification ? "Re-qualify" : "Qualify"}
       </Button>
       {error && <span role="alert" className="max-w-xs text-right text-xs text-oxblood">⚠ {error}</span>}
@@ -38,6 +39,7 @@ export function RediscoverButton({ organisationId }: { organisationId: string })
       <Button loading={pending} onClick={() => start(async () => {
         setError(null); setMsg(null);
         const r = await rediscoverOrganisationAction(organisationId);
+        showActionResult(r, "Re-discovery queued");
         if (!r.ok) setError(r.error);
         else { setMsg(r.message ?? "Queued"); router.refresh(); }
       })}>
@@ -57,6 +59,7 @@ export function FindPeopleButton({ organisationId }: { organisationId: string })
       <Button size="sm" loading={pending} onClick={() => start(async () => {
         setError(null); setMsg(null);
         const r = await findPeopleAction(organisationId);
+        showActionResult(r, "People discovery queued");
         if (!r.ok) setError(r.error);
         else { setMsg(r.message ?? "Queued"); router.refresh(); }
       })}>

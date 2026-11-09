@@ -10,6 +10,7 @@ import { Badge, MarketBadge } from "@/components/neo/badge";
 import { EmptyState, Surface } from "@/components/neo/surface";
 import { cn } from "@/components/neo/cn";
 import { REPLY_CATEGORIES, REPLY_LABEL } from "@/lib/ai/agents/classifier";
+import { showActionResult } from "@/lib/toast";
 import { addNoteAction, draftConversationAction, logManualReplyAction, reviewClassificationAction, setConversationStatusAction, syncNowAction } from "./actions";
 
 export interface ConvRow { id: string; channel: string; status: string; subject: string | null; market: string | null; latest_classification: string | null; needs_review: boolean; last_outbound_at: string | null; last_inbound_at: string | null; updated_at: string; organisations: { id: string; trading_name: string; primary_market: string } | null; contacts: { id: string; full_name: string } | null }
@@ -36,7 +37,7 @@ export function InboxView({ rows, thread, seg, ch, market, gmail }: { rows: Conv
   const [note, setNote] = useState("");
   const [manual, setManual] = useState({ body: "", at: "" });
   const set = (k: string, v: string | null) => { const n = new URLSearchParams(params); if (v) n.set(k, v); else n.delete(k); router.replace(`${path}?${n}`, { scroll: false }); };
-  const act = (fn: () => Promise<{ ok: boolean; error?: string; message?: string }>) => start(async () => { const r = await fn(); setMsg(r.ok ? r.message ?? "Saved." : `⚠ ${r.error}`); router.refresh(); });
+  const act = (fn: () => Promise<{ ok: boolean; error?: string; message?: string }>) => start(async () => { const r = await fn(); showActionResult(r); setMsg(r.ok ? r.message ?? "Saved." : `⚠ ${r.error}`); router.refresh(); });
   const showThreadMobile = !!params.get("c");
 
   return (

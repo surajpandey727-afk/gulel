@@ -10,6 +10,7 @@ import { CommandPalette, SearchTrigger } from "@/components/shell/command-palett
 import { ThemeProvider } from "@/components/shell/theme-provider";
 import { ActivityDock } from "@/components/shell/activity-dock";
 import { NavProgress } from "@/components/shell/nav-progress";
+import { AppToaster } from "@/components/shell/toaster";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -51,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Suspense>
           <NavProgress />
         </Suspense>
+        <AppToaster />
       </div>
     </ThemeProvider>
   );

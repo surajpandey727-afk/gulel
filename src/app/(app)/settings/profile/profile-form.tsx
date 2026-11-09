@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/neo/button";
 import { Field, Input } from "@/components/neo/field";
 import { Panel } from "@/components/neo/surface";
+import { showActionResult } from "@/lib/toast";
 import { updateProfileAction } from "./actions";
 
 export function ProfileForm({ initial }: { initial: { display_name: string; email: string | null; avatar_url: string | null } }) {
@@ -16,6 +17,7 @@ export function ProfileForm({ initial }: { initial: { display_name: string; emai
       setMsg(null);
       setError(null);
       const r = await updateProfileAction({ display_name: name, avatar_url: initial.avatar_url });
+      showActionResult(r, "Profile saved");
       if (r.ok) setMsg(r.message ?? "Saved.");
       else setError(r.error);
     });
