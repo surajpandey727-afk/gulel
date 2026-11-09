@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/neo/badge";
 import { Table, Td, Th, Tr } from "@/components/neo/table";
 import { OpsControls, RetryJobBtn } from "./ops-controls";
 
-export const metadata = { title: "Operations · gulel" };
+export const metadata = { title: "Operations" };
 
 type AgentPerf = {
   agent: string;
