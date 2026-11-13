@@ -1,6 +1,6 @@
 import {
   Activity, BarChart3, Building2, CheckSquare, Compass, Database, Gauge, Inbox, KanbanSquare, Lightbulb, ListChecks,
-  PenLine, Settings, Stamp, Users, Crosshair, Send, TrendingUp, Briefcase,
+  PenLine, Settings, Stamp, Users, Crosshair, Send, TrendingUp, Briefcase, FolderKanban, Layers, Receipt, Award, LayoutDashboard,
   type LucideIcon,
 } from "lucide-react";
 
@@ -46,6 +46,16 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pipeline", label: "Pipeline", icon: KanbanSquare, purpose: "Opportunities & value" },
       { href: "/intelligence", label: "Intelligence", icon: Lightbulb, purpose: "Insights & AI analyst" },
       { href: "/analytics", label: "Analytics", icon: BarChart3, purpose: "Funnel, channel, country" },
+    ],
+  },
+  {
+    key: "central", label: "Central Repository", icon: FolderKanban,
+    items: [
+      { href: "/central", label: "Dashboard", icon: LayoutDashboard, purpose: "Pipeline summary, revenue, tasks" },
+      { href: "/central/pipeline", label: "Pipeline", icon: Layers, purpose: "Opportunities synced with sheet" },
+      { href: "/central/projects", label: "Projects", icon: FolderKanban, purpose: "Active project delivery" },
+      { href: "/central/finances", label: "Finances", icon: Receipt, purpose: "Receivables, expenses, invoicing" },
+      { href: "/central/credentials", label: "Credentials", icon: Award, purpose: "Case studies & testimonials" },
     ],
   },
   {
