@@ -10,6 +10,7 @@ type Via = "ui" | "agent" | "sheet" | "api" | "import";
 export interface Ctx { db: SupabaseClient; workspaceId: string; actorId: string | null; via: Via; note?: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OP_KINDS = new Set<string>(["insert", "update", "delete", "restore", "color", "move"]);
 
 export async function loadStore(db: SupabaseClient, workspaceId: string, opts: { includeDeleted?: boolean } = {}): Promise<Store> {
   const rows: Row[] = [];
@@ -106,7 +107,17 @@ export async function applyOps(ctx: Ctx, ops: Op[], opts: { dryRun?: boolean; fo
   const results: OpResult[] = [];
   const writes: { kind: "insert" | "update"; row: Row; before: RowData | null; action: "insert" | "update" | "delete" | "restore"; patch: Record<string, unknown> }[] = [];
 
-  for (const op of ops) {
+  for (const raw of ops) {
+    const op = raw as Op;
+    const kind = (raw as { op?: unknown })?.op;
+    if (!OP_KINDS.has(kind as string)) {
+      results.push({ ok: false, op: String(kind ?? "?") as Op["op"], sheet: String((raw as { sheet?: unknown })?.sheet ?? ""), key: null, error: `Each op needs "op" set to one of ${[...OP_KINDS].join(", ")} (got ${JSON.stringify(kind ?? null)}). Updates use { op: "update", sheet, key, data: { column: value } }.` });
+      continue;
+    }
+    if (op.op === "update" && (!op.data || typeof op.data !== "object" || !Object.keys(op.data).length)) {
+      results.push({ ok: false, op: "update", sheet: op.sheet, key: op.key ?? null, error: `update needs a non-empty "data" object of { column_key: value }` });
+      continue;
+    }
     if (!SHEET_BY_NAME.has(op.sheet)) { results.push({ ok: false, op: op.op, sheet: op.sheet, key: null, error: `Unknown sheet "${op.sheet}". Sheets: ${SHEETS.map((s) => s.name).join(", ")}` }); continue; }
     const def = sheetDef(op.sheet);
     const idc = idColumn(def);
