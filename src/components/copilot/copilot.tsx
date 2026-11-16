@@ -3,8 +3,9 @@ import Link from "next/link";
 import { useState, useRef, useTransition } from "react";
 import {
   Bookmark, ListPlus, Sparkles, X, Search, FileText, MessageSquare,
-  Shield, ClipboardList, Mic, Tag, CheckCircle, TrendingUp, Bot,
+  Shield, ClipboardList, Mic, Tag, CheckCircle, TrendingUp, Bot, NotebookPen,
 } from "lucide-react";
+import { MunshiPanel } from "@/components/central/munshi";
 import { motion, AnimatePresence } from "motion/react";
 import { Button, IconButton } from "@/components/neo/button";
 import { Drawer } from "@/components/neo/controls";
@@ -23,6 +24,7 @@ const AGENTS = [
   { key: "chitragupta", label: "Chitragupta", icon: ClipboardList, desc: "Audit log", purpose: "Audit trail, memory and system-wide accountability logging", capabilities: ["Activity tracking", "Decision logging", "Accountability trail"] },
   { key: "voice", label: "Voice DNA", icon: Mic, desc: "Writing profile", purpose: "Extract and maintain the founder's writing profile", capabilities: ["Style extraction", "Tone fingerprint", "Voice consistency"] },
   { key: "classifier", label: "Reply classifier", icon: Tag, desc: "Reply triage", purpose: "Propose reply categories for human review", capabilities: ["Category inference", "Priority scoring", "Routing suggestions"] },
+  { key: "munshi", label: "Munshi", icon: NotebookPen, desc: "Update records", purpose: "Maintain Central Repository records on your instruction; you review before anything changes", capabilities: ["Add & edit rows", "Log interactions", "Syncs to Google Sheets"] },
   { key: "fidelity", label: "Voice Fidelity", icon: CheckCircle, desc: "Draft scoring", purpose: "Independently score drafts against the founder's voice profile", capabilities: ["Voice scoring", "Tone deviation flags", "Quality gates"] },
 ] as const;
 
@@ -83,13 +85,16 @@ export function Copilot() {
     setHoveredAgent(null);
   };
 
-  const submit = (question: string) =>
+  const [munshiOpen, setMunshiOpen] = useState(false);
+  const submit = (question: string) => {
+    if (agent === "munshi") { setMunshiOpen(true); return; }
     start(async () => {
       setError(null); setSaved(null);
       const r = await ask(question, agent);
       if (r.ok) setResult({ id: r.insightId, a: r.answer, model: r.model });
       else setError(r.error);
     });
+  };
 
   return (
     <>
@@ -178,6 +183,7 @@ export function Copilot() {
           </Surface>
         )}
       </Drawer>
+      <MunshiPanel open={munshiOpen} onOpenChange={setMunshiOpen} initialText={q} />
     </>
   );
 }

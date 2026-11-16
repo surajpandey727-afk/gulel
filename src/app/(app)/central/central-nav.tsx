@@ -1,15 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Award, Layers, FolderKanban, LayoutDashboard, Receipt } from "lucide-react";
+import { LayoutDashboard, RefreshCw, Table2 } from "lucide-react";
 import { cn } from "@/components/neo/cn";
 
 const TABS = [
   { href: "/central", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/central/pipeline", label: "Pipeline", icon: Layers },
-  { href: "/central/projects", label: "Projects", icon: FolderKanban },
-  { href: "/central/finances", label: "Finances", icon: Receipt },
-  { href: "/central/credentials", label: "Credentials", icon: Award },
+  { href: "/central/board", label: "Board", icon: Table2 },
+  { href: "/central/sync", label: "Sync & access", icon: RefreshCw },
 ] as const;
 
 export function CentralNav() {

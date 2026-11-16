@@ -6,9 +6,9 @@ export default function CentralLayout({ children }: { children: React.ReactNode 
     <>
       <AnimatedPageHeader
         title="Central Repository"
-        description="Pipeline, projects, finances and credentials — synced with your Google Sheet."
+        description="Pipeline, partners, projects, people, tasks and finances. Edit here or in Google Sheets; both stay in sync."
       />
-      <div className="flex flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-5">
         <CentralNav />
         {children}
       </div>

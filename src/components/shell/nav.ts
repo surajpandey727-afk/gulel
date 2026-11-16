@@ -51,11 +51,9 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     key: "central", label: "Central Repository", icon: FolderKanban,
     items: [
-      { href: "/central", label: "Dashboard", icon: LayoutDashboard, purpose: "Pipeline summary, revenue, tasks" },
-      { href: "/central/pipeline", label: "Pipeline", icon: Layers, purpose: "Opportunities synced with sheet" },
-      { href: "/central/projects", label: "Projects", icon: FolderKanban, purpose: "Active project delivery" },
-      { href: "/central/finances", label: "Finances", icon: Receipt, purpose: "Receivables, expenses, invoicing" },
-      { href: "/central/credentials", label: "Credentials", icon: Award, purpose: "Case studies & testimonials" },
+      { href: "/central", label: "Dashboard", icon: LayoutDashboard, purpose: "Pipeline, partners, tasks, finances at a glance" },
+      { href: "/central/board/Pipeline_India", label: "Board", icon: Layers, purpose: "Edit every sheet like monday.com, synced to Google Sheets" },
+      { href: "/central/sync", label: "Sync & access", icon: Receipt, purpose: "Google Sheets link, change log, agent API" },
     ],
   },
   {

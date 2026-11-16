@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/api/jobs/tick", "/api/gmail/oauth/callback"];
+// /api/central/v1 and /api/central/mcp authenticate with their own bearer tokens.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/jobs/tick", "/api/gmail/oauth/callback", "/api/central/v1/", "/api/central/mcp"];
 
 export async function middleware(request: NextRequest) {
   request.headers.set("x-pathname", request.nextUrl.pathname);
