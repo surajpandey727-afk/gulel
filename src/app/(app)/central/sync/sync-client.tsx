@@ -190,7 +190,7 @@ export function TokensPanel({ tokens, isOwner, appUrl }: { tokens: Token[]; isOw
         </div>
         <div className="flex flex-col gap-1.5 rounded-neo neo-inset-sm p-4 text-xs text-ink-2">
           <span className="font-medium text-ink">External agents</span>
-          <p>Connect Claude Code or any MCP client to <code className="font-mono text-ink">{appUrl}/api/central/mcp</code>, or call the REST API at <code className="font-mono text-ink">{appUrl}/api/central/v1</code> (<code>/schema</code>, <code>/rows</code>, <code>/ops</code>, <code>/agent</code>) with a bearer token.</p>
+          <p>Connect Claude Code or any MCP client to <code className="font-mono text-ink">{appUrl}/api/central/mcp</code>, or call the REST API at <code className="font-mono text-ink">{appUrl}/api/central/v1</code> (<code>/schema</code>, <code>/rows</code>, <code>/ops</code>, <code>/agent</code>, <code>/organisations</code>, <code>/notes</code>, <code>/files</code>, <code>/qualify</code>) with a bearer token. Agents can read an organisation with its LinkedIn, score, notes and files, add notes, attach research files and queue qualification.</p>
         </div>
       </div>
 

@@ -6,7 +6,7 @@ import {
 } from "./compute";
 import type { CellValue, EntityTarget, Op, RefItem, Row, RowData, Store } from "./types";
 
-type Via = "ui" | "agent" | "sheet" | "api" | "import";
+type Via = "ui" | "agent" | "sheet" | "api" | "import" | "system";
 export interface Ctx { db: SupabaseClient; workspaceId: string; actorId: string | null; via: Via; note?: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

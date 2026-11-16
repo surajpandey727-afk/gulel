@@ -19,7 +19,7 @@ export default async function QualificationPage({ searchParams }: { searchParams
   const band = typeof sp.band === "string" ? sp.band : "all";
   const s = await getSession();
   const supabase = await createClient();
-  let q = supabase.from("lead_qualifications").select("id, organisation_id, score, override_score, band, coverage, evidence_confidence, engagement_propensity, affordability, critical_unknowns, explanation, created_at, organisations!inner(trading_name, primary_market, sector, is_demo, relationship_status)").eq("workspace_id", s.workspaceId).eq("is_current", true).order("score", { ascending: false }).limit(300);
+  let q = supabase.from("lead_qualifications").select("id, organisation_id, score, override_score, band, coverage, evidence_confidence, engagement_propensity, affordability, critical_unknowns, explanation, created_at, organisations!inner(trading_name, primary_market, sector, is_demo, relationship_status, archived_at, deleted_at)").eq("workspace_id", s.workspaceId).is("organisations.archived_at", null).is("organisations.deleted_at", null).eq("is_current", true).order("score", { ascending: false }).limit(300);
   if (band !== "all") q = q.eq("band", band);
   if (f.market) q = q.eq("organisations.primary_market", f.market);
   const [{ data }, { count: unqualified }, { data: risks }] = await Promise.all([

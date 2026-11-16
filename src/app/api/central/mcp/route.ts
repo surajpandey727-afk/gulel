@@ -24,6 +24,11 @@ const TOOLS = [
   { name: "get_schema", description: "Sheets, editable columns (with types, dropdown lists and entity links) and the current dropdown values of the nishaan-a Central Repository.", inputSchema: { type: "object", properties: {} } },
   { name: "list_rows", description: "Read rows (with computed columns, resolved names and data-validation issues). Filter by sheet and free-text query.", inputSchema: { type: "object", properties: { sheet: { type: "string", enum: SHEET_ENUM }, query: { type: "string" }, limit: { type: "number" } } } },
   { name: "apply_changes", description: "Insert, update, delete or restore rows. Validated like the sheet's data validation and applied all-or-nothing, then synced to Google Sheets. Use dry_run to check first.", inputSchema: { type: "object", properties: { ops: { type: "array", items: OP_SCHEMA }, dry_run: { type: "boolean" }, force: { type: "boolean", description: "Allow deleting rows that other rows reference." } }, required: ["ops"] } },
+  { name: "get_organisation", description: "One organisation as gulel sees it: repository ID, LinkedIn URL, website, qualification score/band/explanation, notes (gulel + Central Repository) and attached files.", inputSchema: { type: "object", properties: { organisation: { type: "string", description: "Central Repository ID (ORG-030), gulel id, or exact name" } }, required: ["organisation"] } },
+  { name: "add_note", description: "Add a research note to an organisation. It appears on the organisation everywhere in gulel (board, organisation page, people pages) and feeds qualification.", inputSchema: { type: "object", properties: { organisation: { type: "string" }, body: { type: "string" } }, required: ["organisation", "body"] } },
+  { name: "upload_file", description: "Attach a file (≤ 3 MB) to an organisation, e.g. a research brief. Use content_text for text/markdown or content_base64 for any file.", inputSchema: { type: "object", properties: { organisation: { type: "string" }, filename: { type: "string" }, content_text: { type: "string" }, content_base64: { type: "string" }, mime_type: { type: "string" } }, required: ["organisation", "filename"] } },
+  { name: "get_file_link", description: "A 5-minute download link for an organisation file (ids come from get_organisation).", inputSchema: { type: "object", properties: { file_id: { type: "string" } }, required: ["file_id"] } },
+  { name: "qualify_organisation", description: "Queue gulel's qualification for an organisation (finds its LinkedIn page first if missing). Results appear on the board and the organisation page.", inputSchema: { type: "object", properties: { organisation: { type: "string" } }, required: ["organisation"] } },
   { name: "ask_munshi", description: "Give gulel's record-keeping agent a plain-English instruction; it plans the row changes (and applies them if apply=true).", inputSchema: { type: "object", properties: { instruction: { type: "string" }, apply: { type: "boolean" } }, required: ["instruction"] } },
 ];
 
@@ -68,6 +73,12 @@ async function handle(m: Rpc, caller: NonNullable<Awaited<ReturnType<typeof auth
           const res = await service.apply(caller.workspaceId, caller.label, a.ops as never, { dryRun: !!a.dry_run, force: !!a.force });
           return text(res, !res.ok);
         }
+        if (name === "get_organisation") return text(await service.organisation(caller.workspaceId, String(a.organisation ?? "")));
+        if (name === "get_file_link") return text(await service.fileLink(caller.workspaceId, String(a.file_id ?? "")));
+        if (["add_note", "upload_file", "qualify_organisation"].includes(name) && !caller.canWrite) return text("This token is read-only.", true);
+        if (name === "add_note") return text(await service.addNote(caller.workspaceId, caller.label, String(a.organisation ?? ""), String(a.body ?? ""), "agent"));
+        if (name === "upload_file") return text(await service.uploadFile(caller.workspaceId, caller.label, String(a.organisation ?? ""), a, "agent"));
+        if (name === "qualify_organisation") return text(await service.qualify(caller.workspaceId, String(a.organisation ?? "")));
         if (name === "ask_munshi") {
           if (!caller.canWrite && a.apply) return text("This token is read-only.", true);
           return text(await service.agent(caller.workspaceId, caller.label, String(a.instruction ?? ""), !!a.apply));

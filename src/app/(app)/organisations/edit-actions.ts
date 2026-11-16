@@ -1,5 +1,8 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { pushOrgToCentral } from "@/lib/central/bridge";
+import { autoPush } from "@/lib/central/sync";
 import { z } from "zod";
 import { getSession } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
@@ -45,8 +48,12 @@ export async function updateOrganisationAction(id: string, input: z.input<typeof
     normalised_name: normaliseCompanyName(rest.trading_name),
     employee_count_as_of: rest.employee_count !== before.employee_count ? new Date().toISOString().slice(0, 10) : before.employee_count_as_of,
   };
+  // Linked to the Central Repository: write the repository row first so the board, the Google Sheet and gulel agree.
+  const repo = await pushOrgToCentral(s.workspaceId, id, { trading_name: rest.trading_name, legal_name: patch.legal_name, website }, s.userId);
+  if (!repo.ok) return { ok: false, error: `Central Repository: ${repo.error}` };
   const { error } = await supabase.from("organisations").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.code === "23505" ? "Another organisation already has this domain or registration number." : error.message };
+  if (repo.linked) after(() => autoPush(s.workspaceId, s.userId));
   if (before.trading_name !== rest.trading_name) {
     await supabase.from("organisation_aliases").upsert({ workspace_id: s.workspaceId, organisation_id: id, alias: before.trading_name, normalised_alias: before.normalised_name, kind: "former" }, { onConflict: "organisation_id,normalised_alias", ignoreDuplicates: true });
   }

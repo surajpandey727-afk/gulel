@@ -13,6 +13,7 @@ import { addContact, createOrganisation } from "@/lib/orgs/service";
 import { discoverPeople } from "@/lib/discovery/people-discovery";
 import { enrichOrganisationNews } from "@/lib/discovery/news";
 import { enqueueJob, kickTick } from "@/lib/jobs/enqueue";
+import { findOrgLinkedIn } from "@/lib/central/enrich";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
 
@@ -28,7 +29,21 @@ const HANDLERS: Record<string, (j: Job) => Promise<unknown>> = {
   linkedin_lookup: (j) => runLinkedInLookup(j),
   people_discovery: (j) => runPeopleDiscovery(j),
   news_enrich: (j) => runNewsEnrich(j),
+  linkedin_find: (j) => runLinkedInFind(j),
 };
+
+/** Central Repository → gulel: find the company's LinkedIn page, then qualify it (even if no page was found). */
+async function runLinkedInFind(j: Job) {
+  const orgId = j.payload.organisation_id as string;
+  const userId = (j.payload.user_id as string | null) ?? null;
+  const found = await findOrgLinkedIn(j.workspace_id, orgId, userId);
+  if (j.payload.then_qualify) {
+    const admin = createAdminClient();
+    const { count } = await admin.from("jobs").select("id", { count: "exact", head: true }).eq("workspace_id", j.workspace_id).eq("type", "qualification").in("status", ["queued", "running"]).contains("payload", { organisation_id: orgId });
+    if (!count) await enqueueJob(j.workspace_id, "qualification", { organisation_id: orgId, user_id: userId }, { maxAttempts: 2 });
+  }
+  return found;
+}
 
 /** Schedules recurring work idempotently (one gmail_sync per account per 5-minute slot). */
 async function schedule() {

@@ -13,6 +13,7 @@ import { createSheetFromXlsx, getSpreadsheetMeta, parseSpreadsheetId } from "@/l
 import { parseWorkbook } from "@/lib/central/workbook";
 import { proposeChanges, type Proposal } from "@/lib/central/agent";
 import { REF_LIST_BY_NAME } from "@/lib/central/compute";
+import { kickTick } from "@/lib/jobs/enqueue";
 import type { Op, Row, Store } from "@/lib/central/types";
 
 type Result<T = undefined> = { ok: true; data: T; message?: string } | { ok: false; error: string };
@@ -224,6 +225,7 @@ export async function importWorkbookAction(form: FormData): Promise<Result<{ ins
       await admin.from("cr_changes").update({ pushed_at: new Date().toISOString() }).eq("workspace_id", s.workspaceId).is("pushed_at", null);
       sheetUrl = created.webViewLink;
     }
+    after(() => autoPush(s.workspaceId, s.userId)); // links organisations and people into gulel, then syncs
     revalidatePath("/central", "layout");
     return { ok: true, data: { ...res, sheetUrl }, message: `Imported: ${res.inserted} new, ${res.updated} updated${replace ? `, ${res.deleted} removed` : ""}.` };
   } catch (e) { return fail(e); }
@@ -257,4 +259,34 @@ export async function revokeApiTokenAction(id: string): Promise<Result> {
     revalidatePath("/central/sync");
     return { ok: true, data: undefined, message: "Token revoked." };
   } catch (e) { return fail(e); }
+}
+
+/* ---------------------------------------------------------------- link to gulel, find LinkedIn, qualify */
+
+export async function qualifyRepositoryAction(requalify = false): Promise<Result<{ total: number; finding: number; qualifying: number; skipped: number }>> {
+  try {
+    const s = await writer();
+    const { queueRepositoryQualification } = await import("@/lib/central/enrich");
+    const r = await queueRepositoryQualification(s.workspaceId, s.userId, { requalify });
+    after(() => kickTick());
+    revalidatePath("/central");
+    revalidatePath("/organisations");
+    return { ok: true, data: { total: r.total, finding: r.finding, qualifying: r.qualifying, skipped: r.skipped }, message: r.finding + r.qualifying ? `Queued ${r.finding} LinkedIn searches and ${r.qualifying} qualifications across ${r.total} organisations.` : `All ${r.total} organisations are linked and already qualified.` };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function linkRepositoryAction(): Promise<Result<{ created: number; linked: number; contacts: number; errors: string[] }>> {
+  try {
+    const s = await writer();
+    const { reconcile } = await import("@/lib/central/bridge");
+    const r = await reconcile(s.workspaceId);
+    after(() => autoPush(s.workspaceId, s.userId));
+    revalidatePath("/central");
+    revalidatePath("/organisations");
+    return { ok: true, data: { created: r.orgsCreated, linked: r.orgsLinked, contacts: r.contactsCreated + r.contactsLinked, errors: r.errors }, message: `Organisations: ${r.orgsCreated} created, ${r.orgsLinked} matched by name, ${r.orgsUpdated} updated. People: ${r.contactsCreated} created, ${r.contactsLinked} matched.` };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }

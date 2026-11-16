@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Link2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/workspace";
 import { fmtDate, money, relTime } from "@/lib/filters";
@@ -18,6 +18,10 @@ import { CompaniesHouseEnrich } from "./ch-enrich";
 import { NewsEnrich } from "./news-enrich";
 import { companiesHouseConfigured } from "@/lib/discovery/companies-house";
 import { EditContactButton, EditOrganisationButton, EvidenceStatusControl } from "./dossier-edit";
+import { OrgNotes } from "@/components/orgs/org-notes";
+import { OrgFiles } from "@/components/orgs/org-files";
+import { listFiles, listNotes, repoNotesFor } from "@/lib/orgs/records";
+import { AddToCentralButton, ArchiveOrgButton, DeleteOrgButton } from "./record-actions";
 import { AddContactButton, AddEvidenceButton, FindPeopleButton, OverrideButton, PrepareOutreachButton, RediscoverButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
 
 type Ev = { id: string; claim_field: string; claim_text: string; fact_type: keyof typeof FACT_TYPE_LABEL; source_name: string; source_url: string | null; published_at: string | null; retrieved_at: string; excerpt: string | null; confidence: number; is_adverse: boolean; value_numeric: number | null; value_currency: string | null; value_as_of: string | null };
@@ -76,6 +80,14 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
     supabase.from("audit_logs").select("id, action, actor_type, created_at, metadata").eq("entity_id", id).order("created_at", { ascending: false }).limit(30),
   ]);
   if (!org) notFound();
+  const [notes, files, { data: liCh }, repoNotes] = await Promise.all([
+    listNotes(supabase, ws, { orgIds: [id] }),
+    listFiles(supabase, ws, [id]),
+    supabase.from("contact_channels").select("value").eq("organisation_id", id).eq("channel", "linkedin").is("contact_id", null).limit(1).maybeSingle(),
+    repoNotesFor(supabase, ws, org.cr_key),
+  ]);
+  const linkedin = liCh?.value ?? null;
+  const canWrite = session.role !== "viewer";
 
   const ev = (evidence ?? []) as Ev[];
   const cur = quals?.find((q) => q.is_current);
@@ -97,6 +109,8 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
     { value: "outreach", label: "Outreach", count: (drafts ?? []).length },
     { value: "timeline", label: "Timeline" },
     { value: "evidence", label: "Evidence", count: ev.length },
+    { value: "notes", label: "Notes", count: notes.length + repoNotes.length },
+    { value: "files", label: "Files", count: files.length },
   ];
 
   return (
@@ -110,6 +124,10 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
             {(org.organisation_market_profiles as Array<{ market: string }>).filter((m) => m.market !== org.primary_market).map((m) => <MarketBadge key={m.market} market={m.market} />)}
             {org.sector && <span>{org.sector}</span>}
             {org.website && <a href={org.website} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-ink">{org.primary_domain}<ExternalLink className="h-3 w-3" /></a>}
+            {linkedin ? <a href={linkedin} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-ink"><Link2 className="h-3.5 w-3.5" aria-hidden />LinkedIn<ExternalLink className="h-3 w-3" /></a> : <span className="inline-flex items-center gap-1 text-ink-3/70"><Link2 className="h-3.5 w-3.5" aria-hidden />LinkedIn not found yet</span>}
+            {org.cr_key && <Link href={`/central/board/Organisations?q=${encodeURIComponent(org.cr_key)}`} className="hover:text-ink"><Badge tone="neutral" icon={false}>{org.cr_key}</Badge></Link>}
+            {org.archived_at && <Badge tone="warning" icon={false}>archived</Badge>}
+            {org.deleted_at && <Badge tone="critical" icon={false}>deleted</Badge>}
             <Badge tone={org.relationship_status === "do_not_contact" ? "critical" : "neutral"} icon={org.relationship_status === "do_not_contact"}>{org.relationship_status.replace(/_/g, " ")}</Badge>
             {org.is_demo && <Badge tone="muted" icon={false}>demo data</Badge>}
           </div>
@@ -120,6 +138,9 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
           <AddEvidenceButton organisationId={id} currency={currency} />
           <RunQualificationButton organisationId={id} hasQualification={!!cur} />
           <PrepareOutreachButton organisationId={id} disabled={org.relationship_status === "do_not_contact"} />
+          {canWrite && !org.cr_key && !org.deleted_at && <AddToCentralButton organisationId={id} />}
+          {canWrite && !org.deleted_at && <ArchiveOrgButton organisationId={id} archived={!!org.archived_at} name={org.trading_name} />}
+          {canWrite && <DeleteOrgButton organisationId={id} name={org.trading_name} deleted={!!org.deleted_at} />}
         </div>
       </header>
 
@@ -328,6 +349,18 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
                 ))}</tbody>
               </Table>
             ) : <EmptyState title="No evidence yet" body="Add sourced claims. Inferences are allowed but labelled as such." />}
+          </Panel>
+        </DossierPanel>
+
+        <DossierPanel name="notes">
+          <Panel title="Notes" eyebrow="Shown on this organisation everywhere: board, people, here">
+            <OrgNotes organisationId={id} initial={notes} canWrite={canWrite} repoNotes={repoNotes} />
+          </Panel>
+        </DossierPanel>
+
+        <DossierPanel name="files">
+          <Panel title="Files" eyebrow="Research, decks and briefs. Your AI agent can add files here too">
+            <OrgFiles organisationId={id} initial={files} canWrite={canWrite} />
           </Panel>
         </DossierPanel>
       </div>

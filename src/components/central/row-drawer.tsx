@@ -11,6 +11,7 @@ import { computeRow, displayValue, entityName, rowIssues, type Index } from "@/l
 import type { CellValue, ColumnDef, Row, SheetDef, Store } from "@/lib/central/types";
 import { rowHistoryAction } from "@/app/(app)/central/actions";
 import { CellView, optionsFor } from "./cells";
+import { OrgContextPanel } from "./org-context";
 
 const VIA: Record<string, string> = { ui: "gulel", agent: "Munshi", sheet: "Google Sheet", api: "API", import: "Import" };
 
@@ -27,6 +28,7 @@ export function RowDrawer({ open, onOpenChange, rowId, store, idx, def, canWrite
   const issues = rowIssues(idx, row);
   const title = entityName(idx, row) || row.row_key || "Item";
   const related = relatedRows(idx, row);
+  const orgKey = row.sheet === "Organisations" ? row.row_key : typeof row.data.org_id === "string" && /^ORG-/.test(row.data.org_id) ? row.data.org_id : null;
   return (
     <Drawer open={open} onOpenChange={onOpenChange} title={title}>
       <div className="flex flex-col gap-5">
@@ -45,6 +47,12 @@ export function RowDrawer({ open, onOpenChange, rowId, store, idx, def, canWrite
             <div className="mb-1 flex items-center gap-1.5 font-medium"><AlertTriangle className="h-3.5 w-3.5" aria-hidden />Row check</div>
             <ul className="list-disc pl-5">{issues.map((i) => <li key={i}>{i}</li>)}</ul>
           </div>
+        )}
+
+        {orgKey && (
+          <section className="rounded-neo neo-raised-sm p-4">
+            <OrgContextPanel orgKey={orgKey} canWrite={canWrite} />
+          </section>
         )}
 
         <section className="flex flex-col gap-3">

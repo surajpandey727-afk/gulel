@@ -47,7 +47,11 @@ export async function buildEvidencePackage(workspaceId: string, organisationId: 
     .sort((a, b) => (b!.buyer_relevance ?? 0) - (a!.buyer_relevance ?? 0));
 
   // Generic inboxes attached to the organisation itself (last resort).
-  const { data: orgChannels } = await supabase.from("contact_channels").select("id, value, email_quality, verification_status, bounced_at").eq("organisation_id", organisationId).is("contact_id", null).eq("channel", "email");
+  const { data: orgChannels } = await supabase.from("contact_channels").select("id, value, email_quality, verification_status, bounced_at").eq("organisation_id", organisationId).is("contact_id", null).in("channel", ["email", "linkedin"]);
+  // The team's own research notes and the Central Repository context: first-party, but opinions until evidenced.
+  const { data: teamNotes } = await supabase.from("notes").select("body, created_at").eq("organisation_id", organisationId).is("deleted_at", null).order("created_at", { ascending: false }).limit(20);
+  const { data: crOrg } = await supabase.from("organisations").select("cr_key").eq("id", organisationId).single();
+  const repoNotes = crOrg?.cr_key ? (await supabase.from("cr_rows").select("sheet, data").eq("workspace_id", workspaceId).or(`and(sheet.eq.Organisations,row_key.eq.${crOrg.cr_key}),data->>org_id.eq.${crOrg.cr_key}`).is("deleted_at", null)).data ?? [] : [];
 
   return {
     organisation: org.data,
@@ -55,7 +59,12 @@ export async function buildEvidencePackage(workspaceId: string, organisationId: 
     evidence: evidence.data ?? [],
     financials: financials.data ?? [],
     contacts: people,
-    organisation_inboxes: (orgChannels ?? []).map((c) => ({ channel_id: c.id, value: c.value, quality: c.email_quality, verification: c.verification_status })),
+    organisation_inboxes: (orgChannels ?? []).filter((c) => c.value.includes("@")).map((c) => ({ channel_id: c.id, value: c.value, quality: c.email_quality, verification: c.verification_status })),
+    organisation_linkedin: (orgChannels ?? []).find((c) => !c.value.includes("@"))?.value ?? null,
+    team_notes: [
+      ...(teamNotes ?? []).map((n) => ({ source: "gulel note", written_at: n.created_at.slice(0, 10), note: n.body.slice(0, 2000) })),
+      ...repoNotes.filter((r, i, a) => a.findIndex((x) => x.sheet === r.sheet && JSON.stringify(x.data) === JSON.stringify(r.data)) === i).map((r) => ({ source: `Central Repository ${String(r.sheet).replace(/_/g, " ")}`, written_at: null, note: String((r.data as Record<string, unknown>).notes ?? "").slice(0, 2000) })).filter((n) => n.note.trim()),
+    ],
     prior_conversations: conversations.data ?? [],
     risk_flags: risks.data ?? [],
   };

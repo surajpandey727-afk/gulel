@@ -5,10 +5,69 @@ import { buildIndex, computeRow, displayValue, rowIssues, sheetDef } from "./com
 import { applyOps, loadStore } from "./store";
 import { proposeChanges, schemaBrief } from "./agent";
 import { autoPush } from "./sync";
+import { enqueueJob } from "@/lib/jobs/enqueue";
+import { addNote, fileUrl, listFiles, listNotes, repoNotesFor, resolveOrg, uploadFileBytes } from "@/lib/orgs/records";
 import type { Op } from "./types";
+
+const MAX_API_FILE = 3 * 1024 * 1024; // request bodies are capped around 4.5 MB; base64 adds a third
+
+async function orgOrThrow(workspaceId: string, ref: unknown) {
+  const org = await resolveOrg(createAdminClient(), workspaceId, String(ref ?? ""));
+  if (!org) throw new Error(`No organisation matches "${String(ref ?? "")}". Use its gulel id, its Central Repository ID (ORG-030) or its exact name.`);
+  return org;
+}
 
 /** Shared by the REST API and the MCP endpoint (token callers; workspace already resolved). */
 export const service = {
+  async organisation(workspaceId: string, ref: string) {
+    const admin = createAdminClient();
+    const org = await orgOrThrow(workspaceId, ref);
+    const [{ data: o }, { data: li }, { data: q }, notes, files, repoNotes] = await Promise.all([
+      admin.from("organisations").select("trading_name, legal_name, website, sector, city, country, primary_market, relationship_status, archived_at").eq("id", org.id).single(),
+      admin.from("contact_channels").select("value").eq("organisation_id", org.id).eq("channel", "linkedin").is("contact_id", null).limit(1).maybeSingle(),
+      admin.from("lead_qualifications").select("score, override_score, band, coverage, explanation, created_at").eq("organisation_id", org.id).eq("is_current", true).maybeSingle(),
+      listNotes(admin, workspaceId, { orgIds: [org.id] }),
+      listFiles(admin, workspaceId, [org.id]),
+      repoNotesFor(admin, workspaceId, org.cr_key),
+    ]);
+    return {
+      id: org.id, repository_id: org.cr_key, ...o, archived: !!o?.archived_at, linkedin_url: li?.value ?? null,
+      qualification: q ? { score: Number(q.override_score ?? q.score), band: q.band, coverage: Number(q.coverage), explanation: q.explanation, at: q.created_at } : null,
+      notes: notes.map((n) => ({ id: n.id, body: n.body, by: n.author, at: n.created_at })),
+      repository_notes: repoNotes,
+      files: files.map((f) => ({ id: f.id, name: f.name, size_bytes: f.size_bytes, mime_type: f.mime_type, at: f.created_at })),
+    };
+  },
+  async addNote(workspaceId: string, label: string, ref: string, body: string, via: "agent" | "api") {
+    const org = await orgOrThrow(workspaceId, ref);
+    const id = await addNote(createAdminClient(), workspaceId, { organisationId: org.id, body: `${body.trim()}`, via, userId: null });
+    return { id, organisation_id: org.id, note: "Added. It shows on the organisation everywhere in gulel." , by: label };
+  },
+  async uploadFile(workspaceId: string, label: string, ref: string, f: { filename?: unknown; content_base64?: unknown; content_text?: unknown; mime_type?: unknown }, via: "agent" | "api") {
+    const org = await orgOrThrow(workspaceId, ref);
+    const name = String(f.filename ?? "").trim();
+    if (!name) throw new Error("filename is required");
+    let bytes: Uint8Array;
+    if (typeof f.content_text === "string") bytes = new TextEncoder().encode(f.content_text);
+    else if (typeof f.content_base64 === "string") bytes = Uint8Array.from(Buffer.from(f.content_base64, "base64"));
+    else throw new Error("Send content_text (for text/markdown) or content_base64 (for any file).");
+    if (bytes.byteLength > MAX_API_FILE) throw new Error("Through the API, files are limited to 3 MB. Upload larger files in gulel.");
+    const mime = typeof f.mime_type === "string" && f.mime_type ? f.mime_type : typeof f.content_text === "string" ? (name.endsWith(".md") ? "text/markdown" : "text/plain") : null;
+    const id = await uploadFileBytes(workspaceId, org.id, name, bytes, mime, via, label);
+    return { id, organisation_id: org.id, name, size_bytes: bytes.byteLength };
+  },
+  async fileLink(workspaceId: string, fileId: string) {
+    return { url: await fileUrl(createAdminClient(), workspaceId, fileId), expires_in_seconds: 300 };
+  },
+  async qualify(workspaceId: string, ref: string) {
+    const org = await orgOrThrow(workspaceId, ref);
+    const admin = createAdminClient();
+    const { data: li } = await admin.from("contact_channels").select("id").eq("organisation_id", org.id).eq("channel", "linkedin").is("contact_id", null).limit(1).maybeSingle();
+    const type = li ? "qualification" : "linkedin_find";
+    const { count } = await admin.from("jobs").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("type", type).in("status", ["queued", "running"]).contains("payload", { organisation_id: org.id });
+    if (!count) await enqueueJob(workspaceId, type, { organisation_id: org.id, user_id: null, then_qualify: true }, { maxAttempts: 2 });
+    return { organisation_id: org.id, queued: count ? "already queued" : type === "linkedin_find" ? "finding LinkedIn, then qualifying" : "qualifying" };
+  },
   schema() {
     return { sheets: schemaBrief(), note: "Write input columns only. ref columns take item IDs from reference lists, entity columns take record IDs. Names are also accepted and resolved." };
   },

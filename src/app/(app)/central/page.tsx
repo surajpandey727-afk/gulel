@@ -9,6 +9,8 @@ import { buildIndex, computeRow, entityName, rowIssues } from "@/lib/central/com
 import { SHEETS } from "@/lib/central/schema";
 import { loadStore } from "@/lib/central/store";
 import { PALETTE, labelColor } from "@/components/central/palette";
+import { repositoryProgress } from "@/lib/central/enrich";
+import { QualifyPanel } from "./qualify-panel";
 
 export const metadata = { title: "Central Repository" };
 export const dynamic = "force-dynamic";
@@ -62,6 +64,8 @@ export default async function CentralDashboard() {
     ...openTasks.filter((r) => r.data.due && String(r.data.due) <= in7).map((r) => ({ r, date: String(r.data.due), what: String(r.data.task ?? ""), kind: "Task" })),
   ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12);
 
+  const repoOrgs = rows("Organisations").filter((r) => String(r.data.archived ?? "").toUpperCase() !== "Y").length;
+  const progress = { total: repoOrgs, ...(await repositoryProgress(s.workspaceId)) };
   const issues = SHEETS.map((d) => ({ sheet: d.name, n: rows(d.name).filter((r) => rowIssues(idx, r).length).length })).filter((x) => x.n);
   const stages = idx.refList.get("Stage") ?? [];
   const pstages = idx.refList.get("PStage") ?? [];
@@ -80,6 +84,8 @@ export default async function CentralDashboard() {
         <Kpi href="/central/board/Finances" icon={Receipt} label="Pending receivables" value={[...fin].filter(([, v]) => v.pending).map(([c, v]) => money(c, v.pending)).join(" · ") || "—"} sub="excludes cancelled" />
         <Kpi href="/central/board/Pipeline_India" icon={AlertTriangle} label="Rows to fix" value={issues.reduce((a, b) => a + b.n, 0)} sub="fail the row check" tone={issues.length ? "warning" : undefined} />
       </div>
+
+      <QualifyPanel p={progress} canWrite={s.role !== "viewer"} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Client pipeline by stage" eyebrow="India · Global" id="stages">

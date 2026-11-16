@@ -1575,6 +1575,31 @@ export const SHEETS: SheetDef[] = [
      "Y",
      "N"
     ]
+   },
+   {
+    "key": "website",
+    "header": "Website",
+    "letter": "O",
+    "width": 195,
+    "type": "url"
+   },
+   {
+    "key": "linkedin_url",
+    "header": "LinkedIn URL",
+    "letter": "P",
+    "width": 255,
+    "type": "url"
+   },
+   {
+    "key": "archived",
+    "header": "Archived",
+    "letter": "Q",
+    "width": 75,
+    "type": "choice",
+    "choices": [
+     "Y",
+     "N"
+    ]
    }
   ]
  },

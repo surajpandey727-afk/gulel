@@ -1,4 +1,5 @@
 import "server-only";
+import { reconcile } from "./bridge";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SHEETS, REF_LISTS } from "./schema";
 import { inputColumns } from "./compute";
@@ -129,6 +130,8 @@ export async function pushToSheet(workspaceId: string, actorId: string | null) {
       const end = Math.max(TEMPLATE_LAST_ROW, FIRST_DATA_ROW + list.length - 1);
       if (list.length > TEMPLATE_LAST_ROW - FIRST_DATA_ROW + 1) warnings.push(`${def.name} has ${list.length} rows; the sheet's formulas cover 100. Extend the formulas in Google Sheets.`);
       for (const c of inputColumns(def)) {
+        // Header cell too, so columns added to the schema after the sheet was created appear (idempotent: same text).
+        data.push({ range: `${quoteSheet(def.name)}!${c.letter}${FIRST_DATA_ROW - 1}`, majorDimension: "COLUMNS", values: [[c.header]] });
         const col = list.map((r) => toSheetCell(c, r.data[c.key]));
         while (col.length < end - FIRST_DATA_ROW + 1) col.push("");
         data.push({ range: `${quoteSheet(def.name)}!${c.letter}${FIRST_DATA_ROW}:${c.letter}${end}`, majorDimension: "COLUMNS", values: [col] });
@@ -160,15 +163,16 @@ export async function pushToSheet(workspaceId: string, actorId: string | null) {
 /** Two-way sync: pull sheet edits first, then write gulel's state back. */
 export async function syncNow(workspaceId: string, actorId: string | null) {
   const pulled = await pullFromSheet(workspaceId, actorId);
+  const linked = await reconcile(workspaceId).catch((e) => ({ errors: [(e as Error).message] }));
   const pushed = await pushToSheet(workspaceId, actorId);
-  return { pulled, pushed };
+  return { pulled, linked, pushed };
 }
 
 /** Called after a gulel edit: sync if a sheet is linked and auto-sync is on (pull first so sheet-side edits survive). Never throws. */
 export async function autoPush(workspaceId: string, actorId: string | null) {
   try {
     const link = await getLink(workspaceId);
-    if (!link?.spreadsheet_id || !link.auto_push) return;
+    if (!link?.spreadsheet_id || !link.auto_push) { await reconcile(workspaceId); return; }
     await syncNow(workspaceId, actorId);
   } catch { /* recorded in cr_link / sync_log */ }
 }

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Columns3, Copy, Download, EyeOff, Filter, GripVertical,
+  AlertTriangle, Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Columns3, Copy, Download, EyeOff, Filter, GripVertical,
   Layers, Lock, Maximize2, MoreHorizontal, Palette, Plus, Redo2, RefreshCw, RotateCcw, Search, Sparkles, Trash2, Undo2, X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,7 +25,7 @@ import { MunshiPanel } from "./munshi";
 
 interface View {
   hidden: string[]; widths: Record<string, number>; frozen: number; groupBy: string | null;
-  sort: { key: string; dir: 1 | -1 } | null; filters: Record<string, string[]>; issuesOnly: boolean; showLookups: boolean; collapsed: string[];
+  sort: { key: string; dir: 1 | -1 } | null; filters: Record<string, string[]>; issuesOnly: boolean; showLookups: boolean; collapsed: string[]; showArchived?: boolean;
 }
 const GROUP_DEFAULT = ["stage_id", "status_id", "relationship_id", "type_id", "project_id"];
 const NAME_KEYS = new Set(["organisation", "name", "project", "opportunity", "partner"]);
@@ -138,11 +138,14 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
     return m;
   }, [idx, sheet, def]);
 
+  const hasArchive = def.columns.some((c) => c.key === "archived");
+  const archivedCount = hasArchive ? (idx.bySheet.get(sheet) ?? []).filter((r) => String(r.data.archived ?? "").toUpperCase() === "Y").length : 0;
   const visibleRows = useMemo(() => {
     let rows = idx.bySheet.get(sheet) ?? [];
     const needle = q.trim().toLowerCase();
     if (needle) rows = rows.filter((r) => computed.get(r.id)?.text.includes(needle));
     if (view.issuesOnly) rows = rows.filter((r) => (computed.get(r.id)?.issues.length ?? 0) > 0);
+    if (hasArchive && !view.showArchived) rows = rows.filter((r) => String(r.data.archived ?? "").toUpperCase() !== "Y");
     for (const [k, vals] of Object.entries(view.filters)) if (vals.length) rows = rows.filter((r) => vals.includes(String(r.data[k] ?? "")));
     if (view.sort) {
       const { key, dir } = view.sort;
@@ -157,7 +160,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
       });
     }
     return rows;
-  }, [idx, sheet, q, view.issuesOnly, view.filters, view.sort, computed, def]);
+  }, [idx, sheet, q, view.issuesOnly, view.showArchived, hasArchive, view.filters, view.sort, computed, def]);
 
   const groupCol = view.groupBy ? def.columns.find((c) => c.key === view.groupBy) ?? null : null;
   const groups = useMemo(() => {
@@ -424,6 +427,12 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
           {q && <button type="button" onClick={() => setQ("")} aria-label="Clear search"><X className="h-3.5 w-3.5 text-ink-3" /></button>}
         </label>
         <FilterMenu def={def} idx={idx} refCols={refCols} view={view} patchView={patchView} count={activeFilters} issues={totalIssues} />
+        {hasArchive && (
+          <button type="button" onClick={() => patchView({ showArchived: !view.showArchived })} aria-pressed={!!view.showArchived}
+            className={cn("inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-shadow", view.showArchived ? "neo-inset-sm text-ink" : "neo-raised-sm text-ink-2 hover:text-ink")}>
+            <Archive className="h-3.5 w-3.5" aria-hidden />{view.showArchived ? "Showing archived" : "Archived"}<span className="tabular text-ink-3">{archivedCount}</span>
+          </button>
+        )}
         <ToolMenu icon={Layers} label={groupCol ? `Group: ${displayHeader(def, groupCol)}` : "Group"}>
           {(close) => (
             <MenuList>
@@ -646,6 +655,9 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
           {canWrite && <MenuItem onClick={() => { void duplicateRows([r.id]); close(); }}><Copy className="h-3.5 w-3.5" />Duplicate</MenuItem>}
           {canWrite && <div className="px-2.5 pb-1 pt-2 text-[0.625rem] font-medium uppercase tracking-wider text-ink-3">Row colour</div>}
           {canWrite && <ColorGrid onPick={(c) => { colorRows([r.id], c); close(); }} current={r.color} />}
+          {canWrite && hasArchive && (String(r.data.archived ?? "").toUpperCase() === "Y"
+            ? <MenuItem onClick={() => { setCell(r, "archived", "N"); close(); }}><ArchiveRestore className="h-3.5 w-3.5" />Reinstate</MenuItem>
+            : <MenuItem onClick={() => { setCell(r, "archived", "Y"); close(); }}><Archive className="h-3.5 w-3.5" />Archive</MenuItem>)}
           {canWrite && <MenuItem danger onClick={() => { void deleteRows([r.id]); close(); }}><Trash2 className="h-3.5 w-3.5" />Delete</MenuItem>}
         </MenuList>
       </Floating>

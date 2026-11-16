@@ -70,6 +70,10 @@ for r in range(4, LAST + 1):
         if m:
             setv(ws, r, lc, m.group(1))
             setv(ws, r, conf, "N")
+# Organisations: links and archive state (one data point per cell; filled by gulel / the agent)
+add_col(ws, "Website", None, 26)
+add_col(ws, "LinkedIn URL", None, 34)
+add_col(ws, "Archived", ["Y", "N"], 10)
 
 # Contacts: nickname, secondary role, unconfirmed role
 ws = wb["Contacts"]

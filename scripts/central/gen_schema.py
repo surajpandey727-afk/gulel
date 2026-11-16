@@ -58,7 +58,7 @@ for name in SHEETS:
             elif d is not None and d.type == "date": col["type"] = "date"
             elif d is not None and d.type == "decimal": col["type"] = "number"
             elif h == "Email": col["type"] = "email"
-            elif h == "Link": col["type"] = "url"
+            elif h in ("Link", "Website", "LinkedIn URL"): col["type"] = "url"
             elif h in LONG: col["type"] = "longtext"
             else: col["type"] = "text"
             if h in required or h == ws.cell(3, 1).value and L == "A": col["required"] = True
