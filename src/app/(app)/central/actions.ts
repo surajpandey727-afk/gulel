@@ -126,7 +126,11 @@ export async function proposeAction(instruction: string): Promise<Result<Proposa
     const db = await createClient();
     return { ok: true, data: await proposeChanges(db, s.workspaceId, s.userId, q) };
   } catch (e) {
-    return { ok: false, error: e instanceof GatewayError ? e.message : e instanceof Error ? e.message : "Munshi could not plan these changes." };
+    const msg = e instanceof GatewayError ? e.message : e instanceof Error ? e.message : "Munshi could not plan these changes.";
+    if (/x-api-key|authentication_error|invalid api key/i.test(msg)) {
+      return { ok: false, error: "The Anthropic API key saved in Settings → Providers was rejected (it may have been rotated). Paste the current key there, then try again." };
+    }
+    return { ok: false, error: msg };
   }
 }
 

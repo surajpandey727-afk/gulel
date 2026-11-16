@@ -28,10 +28,12 @@ export function MunshiPanel({ open, onOpenChange, sheet, idx: givenIdx, onApplie
   const [thinking, startThinking] = useTransition();
   const [applying, startApplying] = useTransition();
 
+  const [err, setErr] = useState<string | null>(null);
   const propose = () => startThinking(async () => {
     setProposal(null);
+    setErr(null);
     const r = await proposeAction(sheet ? `${text}\n\n(The founder is looking at the ${sheet} sheet.)` : text);
-    if (!r.ok) return void toast.error(r.error);
+    if (!r.ok) return void setErr(r.error);
     setProposal(r.data);
   });
 
@@ -67,6 +69,11 @@ export function MunshiPanel({ open, onOpenChange, sheet, idx: givenIdx, onApplie
             {EXAMPLES.map((x) => <button key={x} type="button" onClick={() => setText(x)} className="rounded-full neo-raised-sm px-3 py-1 text-left text-xs text-ink-2 hover:text-oxblood">{x}</button>)}
           </div>
           {thinking && <p className="text-xs text-ink-3">Munshi is reading the repository and planning the changes…</p>}
+          {err && !thinking && (
+            <div role="alert" className="flex items-start gap-1.5 rounded-neo-sm bg-danger/10 px-3 py-2.5 text-xs text-danger">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /><span>{err}</span>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-4">
