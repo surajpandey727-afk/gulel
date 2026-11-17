@@ -22,6 +22,11 @@ export const OVERVIEW: NavItem = {
   href: "/overview", label: "Overview", icon: Gauge, purpose: "Executive commercial command centre",
 };
 
+/** Fixed shortcut right under Overview: the Central Repository boards (monday.com-style, synced to Google Sheets). */
+export const BOARDS: NavItem = {
+  href: "/central/board", label: "Boards", icon: Layers, purpose: "Pipeline, partners, projects and people boards with the India and Global dashboard",
+};
+
 export const NAV_GROUPS: NavGroup[] = [
   {
     key: "prospecting", label: "Prospecting", icon: Crosshair,
@@ -52,7 +57,6 @@ export const NAV_GROUPS: NavGroup[] = [
     key: "central", label: "Central Repository", icon: FolderKanban,
     items: [
       { href: "/central", label: "Dashboard", icon: LayoutDashboard, purpose: "Pipeline, partners, tasks, finances at a glance" },
-      { href: "/central/board/Pipeline_India", label: "Board", icon: Layers, purpose: "Edit every sheet like monday.com, synced to Google Sheets" },
       { href: "/central/sync", label: "Sync & access", icon: Receipt, purpose: "Google Sheets link, change log, agent API" },
     ],
   },
@@ -67,6 +71,6 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-export const NAV: NavItem[] = [OVERVIEW, ...NAV_GROUPS.flatMap((g) => g.items)];
+export const NAV: NavItem[] = [OVERVIEW, BOARDS, ...NAV_GROUPS.flatMap((g) => g.items)];
 
 export const MOBILE_NAV = ["/overview", "/approvals", "/inbox", "/organisations"] as const;

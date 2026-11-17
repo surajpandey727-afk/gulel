@@ -171,7 +171,20 @@ export function computeRow(idx: Index, row: Row): RowData {
     if (c.type !== "formula") continue;
     out[c.key] = evalFormula(idx, def, row, c, out, fam);
   }
+  // Pipeline Value is typed by the team; when blank it falls back to the linked projects' receivables.
+  if (fam === "Pipeline" && s(row.data.value) === "") {
+    const auto = projectValue(idx, row);
+    out.value = auto === 0 ? null : auto;
+  }
   return out;
+}
+
+/** Receivables of the projects linked to an opportunity (what the sheet's old Value formula summed). */
+export function projectValue(idx: Index, row: Row): number {
+  if (!row.row_key) return 0;
+  let sum = 0;
+  for (const p of idx.projectsByPipeline.get(row.row_key) ?? []) if (p.row_key) sum += receivableSum(idx, p.row_key);
+  return sum;
 }
 
 function evalFormula(idx: Index, def: SheetDef, row: Row, c: ColumnDef, out: RowData, fam: string): CellValue {
@@ -199,12 +212,6 @@ function evalFormula(idx: Index, def: SheetDef, row: Row, c: ColumnDef, out: Row
   const org = (k: CellValue | undefined) => findEntity(idx, "Organisations", s(k));
   const fl = (k: CellValue | undefined) => findEntity(idx, "Freelancers", s(k));
   switch (`${fam}:${c.header}`) {
-    case "Pipeline:Value": {
-      if (!row.row_key) return "";
-      let sum = 0;
-      for (const p of idx.projectsByPipeline.get(row.row_key) ?? []) if (p.row_key) sum += receivableSum(idx, p.row_key);
-      return sum === 0 ? "" : sum;
-    }
     case "Pipeline:Last touch": return maxInteraction(idx, "opportunity_id", row.row_key);
     case "Partners:Last touch": return maxInteraction(idx, "partner_id", row.row_key);
     case "Contacts:Last interaction": return maxInteraction(idx, "contact_id", row.row_key);

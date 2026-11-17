@@ -13,6 +13,10 @@ import { EmptyState, Panel } from "@/components/neo/surface";
 import { GlobalFilters } from "@/components/shell/filters";
 import { HeroKpi } from "@/components/overview/hero-kpi";
 import { Funnel } from "@/components/overview/funnel";
+import { loadStore } from "@/lib/central/store";
+import { buildIndex } from "@/lib/central/compute";
+import { marketSummary } from "@/lib/central/metrics";
+import { MarketDashboard } from "@/components/central/market-dashboard";
 
 export const metadata = { title: "Overview" };
 
@@ -43,6 +47,11 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
     orgFilter(supabase.from("evidence_items").select("id, claim_text, source_name, source_url, published_at, retrieved_at, organisation_id, organisations!inner(trading_name, primary_market)").eq("workspace_id", ws).eq("status", "active").like("claim_field", "signal.%")).order("retrieved_at", { ascending: false }).limit(5),
     orgFilter(supabase.from("organisations").select("id, trading_name, primary_market, sector, stage, created_at, lead_qualifications!inner(score, band, is_current)").eq("workspace_id", ws).eq("lead_qualifications.is_current", true)).order("created_at", { ascending: false }).limit(8),
   ]);
+
+  // Central Repository India | Global: the same summary the Boards dashboard shows.
+  const repo = await loadStore(supabase, ws).catch(() => null);
+  const repoIdx = repo && repo.rows.length ? buildIndex(repo) : null;
+  const repoMarkets = repoIdx ? [marketSummary(repoIdx, "IN"), marketSummary(repoIdx, "GL")] : [];
 
   const k = (kpiRes.data ?? {}) as KpiSummary;
   const funnel = (funnelRes.data ?? []) as Array<{ stage: string; count: number }>;
@@ -83,6 +92,19 @@ export default async function OverviewPage({ searchParams }: { searchParams: Sea
         <HeroKpi label="Meetings booked" value={String(k.meetings_booked ?? 0)} numeric={{ to: k.meetings_booked ?? 0, decimals: 0 }} delta={k.meeting_conversion ? { value: pct(k.meeting_conversion), direction: (k.meeting_conversion ?? 0) > 0 ? "up" : "flat" } : undefined} />
         <HeroKpi label="Qualified leads" value={String(k.qualified_leads ?? 0)} numeric={{ to: k.qualified_leads ?? 0, decimals: 0 }} delta={k.organisations_discovered ? { value: `${k.organisations_discovered} discovered`, direction: "up" } : undefined} />
       </section>
+
+      {repoMarkets.length > 0 && (
+        <section aria-label="Central Repository by market" className="mb-6 flex flex-col gap-3">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="eyebrow">Central Repository</p>
+              <h2 className="text-base font-semibold tracking-tight text-ink">India and Global markets</h2>
+            </div>
+            <Link href="/central/board" className="inline-flex items-center gap-1 text-xs text-oxblood hover:underline">Open Boards <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
+          </div>
+          <MarketDashboard markets={repoMarkets} compact />
+        </section>
+      )}
 
       {(k.sample_size_reached ?? 0) > 0 && (k.sample_size_reached ?? 0) < 30 && (
         <p className="-mt-3 mb-6 text-xs text-ink-3">Small sample: rates are based on {k.sample_size_reached} reached people and will move a lot with each reply.</p>

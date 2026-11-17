@@ -5,12 +5,18 @@ import { useState } from "react";
 import { ChevronDown, Menu, Moon, Sun } from "lucide-react";
 import { cn } from "@/components/neo/cn";
 import { GulelMark } from "@/components/brand/gulel-mark";
-import { MOBILE_NAV, NAV, NAV_GROUPS, OVERVIEW, type NavGroup } from "./nav";
+import { BOARDS, MOBILE_NAV, NAV, NAV_GROUPS, OVERVIEW, type NavGroup, type NavItem } from "./nav";
 import { SearchTrigger } from "./command-palette";
 import { useTheme } from "./theme-provider";
 
+/** Boards lives under /central but has its own top-level entry, so it must not also light up the Central Repository group. */
+function isActive(path: string, href: string) {
+  if (href !== BOARDS.href && (path === BOARDS.href || path.startsWith(BOARDS.href + "/"))) return false;
+  return path === href || path.startsWith(href + "/");
+}
+
 function AccordionGroup({ group, badges, path }: { group: NavGroup; badges: Record<string, number>; path: string }) {
-  const hasActive = group.items.some((it) => path === it.href || path.startsWith(it.href + "/"));
+  const hasActive = group.items.some((it) => isActive(path, it.href));
   const [open, setOpen] = useState(hasActive);
   const groupBadge = group.items.reduce((s, it) => s + (badges[it.href] ?? 0), 0);
 
@@ -33,7 +39,7 @@ function AccordionGroup({ group, badges, path }: { group: NavGroup; badges: Reco
       </button>
       <div className={cn("flex flex-col gap-0.5 overflow-hidden transition-all duration-200", open ? "mt-0.5 max-h-[400px] opacity-100" : "max-h-0 opacity-0")}>
         {group.items.map(({ href, label, icon: Icon }) => {
-          const active = path === href || path.startsWith(href + "/");
+          const active = isActive(path, href);
           const n = badges[href];
           return (
             <Link
@@ -57,10 +63,26 @@ function AccordionGroup({ group, badges, path }: { group: NavGroup; badges: Reco
   );
 }
 
+function TopLink({ item, path }: { item: NavItem; path: string }) {
+  const active = isActive(path, item.href);
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-10 items-center gap-3 rounded-full px-3 text-sm transition-all duration-150",
+        active ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:bg-raised/60 hover:text-ink",
+      )}
+    >
+      <item.icon className={cn("h-[18px] w-[18px]", active ? "text-oxblood" : "text-ink-3")} aria-hidden />
+      <span className="flex-1 truncate">{item.label}</span>
+    </Link>
+  );
+}
+
 export function Sidebar({ badges }: { badges: Record<string, number> }) {
   const path = usePathname();
   const { theme, toggle } = useTheme();
-  const overviewActive = path === OVERVIEW.href || path.startsWith(OVERVIEW.href + "/");
 
   return (
     <nav aria-label="Primary" className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col gap-1 overflow-y-auto px-4 py-5 lg:flex">
@@ -74,17 +96,8 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
 
       <div className="mb-3"><SearchTrigger /></div>
 
-      <Link
-        href={OVERVIEW.href}
-        aria-current={overviewActive ? "page" : undefined}
-        className={cn(
-          "flex h-10 items-center gap-3 rounded-full px-3 text-sm transition-all duration-150",
-          overviewActive ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:bg-raised/60 hover:text-ink",
-        )}
-      >
-        <OVERVIEW.icon className={cn("h-[18px] w-[18px]", overviewActive ? "text-oxblood" : "text-ink-3")} aria-hidden />
-        <span className="flex-1 truncate">{OVERVIEW.label}</span>
-      </Link>
+      <TopLink item={OVERVIEW} path={path} />
+      <TopLink item={BOARDS} path={path} />
 
       <div className="mx-1.5 my-2 h-px bg-hairline" />
 

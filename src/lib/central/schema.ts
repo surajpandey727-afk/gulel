@@ -274,7 +274,7 @@ export const SHEETS: SheetDef[] = [
     "header": "Value",
     "letter": "Z",
     "width": 90,
-    "type": "formula"
+    "type": "number"
    },
    {
     "key": "last_touch",
@@ -597,7 +597,7 @@ export const SHEETS: SheetDef[] = [
     "header": "Value",
     "letter": "Z",
     "width": 90,
-    "type": "formula"
+    "type": "number"
    },
    {
     "key": "last_touch",

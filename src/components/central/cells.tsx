@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ExternalLink, Search, X } from "lucide-react";
+import { Check, ExternalLink, Plus, Search, X } from "lucide-react";
 import { cn } from "@/components/neo/cn";
 import { displayValue, entityName, entityRows, type Index } from "@/lib/central/compute";
 import type { CellValue, ColumnDef, EntityTarget, Row } from "@/lib/central/types";
@@ -53,8 +53,12 @@ export function CellView({ c, value, row, idx, isOpen }: { c: ColumnDef; value: 
       const overdue = isOpen && /next date|due/i.test(c.header) && v < new Date().toISOString().slice(0, 10);
       return <span className={cn("tabular", overdue ? "font-medium text-danger" : "text-ink-2")} title={overdue ? "Overdue" : undefined}>{fmtDate(v)}</span>;
     }
-    case "number":
-      return <span className="block text-right tabular text-ink">{Number(v).toLocaleString("en-GB")}</span>;
+    case "number": {
+      const isMoney = c.key === "value";
+      const auto = isMoney && (row.data.value === null || row.data.value === undefined || row.data.value === "");
+      const sign = isMoney ? CURRENCY_SIGN[String(row.data.currency_id ?? "")] ?? "" : "";
+      return <span className={cn("block text-right tabular", auto ? "text-ink-3" : "text-ink")} title={auto ? "From linked projects. Type a value to override." : undefined}>{sign}{Number(v).toLocaleString("en-GB")}</span>;
+    }
     case "email":
       return <span className="truncate text-ink-2">{v}</span>;
     case "url":
@@ -124,8 +128,10 @@ export function optionsFor(c: ColumnDef, row: Row | null, idx: Index): Option[] 
   return entityRows(idx, target).filter((r) => r.row_key).map((r) => ({ value: r.row_key!, label: entityName(idx, r) || r.row_key!, hint: r.row_key! }));
 }
 
-export function OptionPicker({ anchor, options, value, onPick, onClose, onManage, emptyHint }: {
+export function OptionPicker({ anchor, options, value, onPick, onClose, onManage, emptyHint, onCreate, createNoun = "value" }: {
   anchor: HTMLElement | null; options: Option[]; value: string; onPick: (v: string | null) => void; onClose: () => void; onManage?: () => void; emptyHint?: string;
+  /** Lets the user add a value that is not in the list yet (a new label, organisation, contact, partner…). */
+  onCreate?: (label: string) => void; createNoun?: string;
 }) {
   const [q, setQ] = useState("");
   const [hi, setHi] = useState(0);
@@ -134,6 +140,8 @@ export function OptionPicker({ anchor, options, value, onPick, onClose, onManage
     return s ? options.filter((o) => o.label.toLowerCase().includes(s) || (o.hint ?? "").toLowerCase().includes(s)) : options;
   }, [q, options]);
   useEffect(() => setHi(Math.max(0, list.findIndex((o) => o.value === value))), [list, value]);
+  const typed = q.trim();
+  const canCreate = !!onCreate && typed.length > 0 && !options.some((o) => o.label.toLowerCase() === typed.toLowerCase());
   return (
     <Floating anchor={anchor} onClose={onClose} width={300}>
       <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
@@ -144,13 +152,13 @@ export function OptionPicker({ anchor, options, value, onPick, onClose, onManage
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(list.length - 1, h + 1)); }
             else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(0, h - 1)); }
-            else if (e.key === "Enter") { e.preventDefault(); if (list[hi]) onPick(list[hi].value); }
+            else if (e.key === "Enter") { e.preventDefault(); if (list[hi]) onPick(list[hi].value); else if (canCreate) onCreate!(typed); }
             else if (e.key === "Escape") { e.preventDefault(); onClose(); }
           }}
         />
       </div>
       <ul role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {list.length === 0 && <li className="px-3 py-3 text-xs text-ink-3">{emptyHint ?? "No matches. Only values from the list are allowed."}</li>}
+        {list.length === 0 && !canCreate && <li className="px-3 py-3 text-xs text-ink-3">{emptyHint ?? (onCreate ? "Type to search or add a new value." : "No matches. Only values from the list are allowed.")}</li>}
         {list.map((o, i) => (
           <li key={o.value} role="option" aria-selected={o.value === value}>
             <button
@@ -163,6 +171,13 @@ export function OptionPicker({ anchor, options, value, onPick, onClose, onManage
             </button>
           </li>
         ))}
+        {canCreate && (
+          <li>
+            <button type="button" onClick={() => onCreate!(typed)} className="flex w-full items-center gap-2 rounded-neo-sm px-2.5 py-1.5 text-left text-sm text-oxblood hover:bg-sunken/70">
+              <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">Add {createNoun} &ldquo;{typed}&rdquo;</span>
+            </button>
+          </li>
+        )}
       </ul>
       <div className="flex items-center justify-between border-t border-hairline px-2 py-1.5">
         <button type="button" onClick={() => onPick(null)} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-ink-2 hover:bg-sunken/70"><X className="h-3 w-3" aria-hidden />Clear</button>
@@ -177,7 +192,13 @@ export function OptionPicker({ anchor, options, value, onPick, onClose, onManage
 export function InlineEditor({ c, initial, onCommit, onCancel }: { c: ColumnDef; initial: string; onCommit: (v: string, move?: "down" | "right" | "left") => void; onCancel: () => void }) {
   const [v, setV] = useState(initial);
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { const el = ref.current; if (el) { el.focus(); if (c.type !== "date") el.setSelectionRange(el.value.length, el.value.length); } }, [c.type]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    // Number, date and email inputs do not support selection ranges (it throws), so only text-like inputs get the caret moved.
+    if (el.type === "text") { try { el.setSelectionRange(el.value.length, el.value.length); } catch {} }
+  }, [c.type]);
   return (
     <input
       ref={ref} value={v} onChange={(e) => setV(e.target.value)} aria-label={c.header}

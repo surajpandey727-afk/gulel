@@ -35,7 +35,10 @@ for name in SHEETS:
         v4 = ws.cell(4, c.column).value
         formula = isinstance(v4, str) and v4.startswith("=")
         col = {"key": slug(h), "header": h, "letter": L, "width": round((ws.column_dimensions[L].width or 12) * 7.5)}
-        if formula:
+        if formula and name.startswith("Pipeline_") and h == "Value":
+            # Typed by the team in gulel / the Sheet; when blank, gulel shows the linked projects' receivables.
+            col["type"] = "number"
+        elif formula:
             col["type"] = "formula"
             m = re.search(r"INDEX\(ref_(\w+?)_(Name|IsOpen),MATCH\(([A-Z]+)4,ref_\1_ID,0\)\)", v4)
             if m and v4.startswith(f'=IF({m.group(3)}4=""'):

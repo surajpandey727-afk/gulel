@@ -13,6 +13,8 @@ import { after } from "next/server";
 import { kickTick } from "@/lib/jobs/enqueue";
 import { repositoryProgress } from "@/lib/central/enrich";
 import { QualifyPanel } from "./qualify-panel";
+import { marketSummary } from "@/lib/central/metrics";
+import { MarketDashboard } from "@/components/central/market-dashboard";
 
 export const metadata = { title: "Central Repository" };
 export const dynamic = "force-dynamic";
@@ -41,8 +43,10 @@ export default async function CentralDashboard() {
 
   const pipe = [...rows("Pipeline_India"), ...rows("Pipeline_Global")];
   const partners = [...rows("Partners_India"), ...rows("Partners_Global")];
-  const openPipe = pipe.filter((r) => isOpenStage("Stage", r.data.stage_id));
-  const openPartners = partners.filter((r) => isOpenStage("PStage", r.data.stage_id));
+  // Same summary the Boards dashboard and Overview use, so the numbers always match.
+  const markets = [marketSummary(idx, "IN"), marketSummary(idx, "GL")];
+  const openPipeCount = markets.reduce((a, m) => a + m.openOpportunities, 0);
+  const openPartnersCount = markets.reduce((a, m) => a + m.activePartners, 0);
   const tasks = rows("Tasks");
   const openTasks = tasks.filter((r) => isOpenStage("TaskStatus", r.data.status_id));
   const overdueTasks = openTasks.filter((r) => r.data.due && String(r.data.due) < today);
@@ -80,13 +84,15 @@ export default async function CentralDashboard() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi href="/central/board/Pipeline_India" icon={Layers} label="Open opportunities" value={openPipe.length} sub={`${rows("Pipeline_India").length} India · ${rows("Pipeline_Global").length} Global`} />
-        <Kpi href="/central/board/Partners_India" icon={Handshake} label="Active partner talks" value={openPartners.length} sub={`${partners.length} partners in total`} />
+        <Kpi href="/central/board/Pipeline_India" icon={Layers} label="Open opportunities" value={openPipeCount} sub={`${markets[0].openOpportunities} India · ${markets[1].openOpportunities} Global open`} />
+        <Kpi href="/central/board/Partners_India" icon={Handshake} label="Active partner talks" value={openPartnersCount} sub={`${partners.length} partners in total`} />
         <Kpi href="/central/board/Projects" icon={Layers} label="Active projects" value={activeProjects.length} sub={`${projects.length} projects`} />
         <Kpi href="/central/board/Tasks" icon={CheckSquare} label="Open tasks" value={openTasks.length} sub={overdueTasks.length ? `${overdueTasks.length} overdue` : "none overdue"} tone={overdueTasks.length ? "danger" : undefined} />
         <Kpi href="/central/board/Finances" icon={Receipt} label="Pending receivables" value={[...fin].filter(([, v]) => v.pending).map(([c, v]) => money(c, v.pending)).join(" · ") || "—"} sub="excludes cancelled" />
         <Kpi href="/central/board/Pipeline_India" icon={AlertTriangle} label="Rows to fix" value={issues.reduce((a, b) => a + b.n, 0)} sub="fail the row check" tone={issues.length ? "warning" : undefined} />
       </div>
+
+      <MarketDashboard markets={markets} compact />
 
       <QualifyPanel p={progress} canWrite={s.role !== "viewer"} />
 

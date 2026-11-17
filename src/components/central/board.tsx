@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle, Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Columns3, Copy, Download, EyeOff, Filter, GripVertical,
-  Layers, Lock, Maximize2, MoreHorizontal, Palette, Plus, Redo2, RefreshCw, RotateCcw, Search, Sparkles, Trash2, Undo2, X,
+  KanbanSquare, LayoutDashboard, Layers, Lock, Maximize2, Minimize2, MoreHorizontal, Palette, Plus, Redo2, RefreshCw, RotateCcw, Search, Sparkles, StickyNote, Table2, Trash2, Undo2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/neo/button";
@@ -12,20 +12,24 @@ import { Modal } from "@/components/neo/controls";
 import { cn } from "@/components/neo/cn";
 import { createClient } from "@/lib/supabase/client";
 import { SHEETS } from "@/lib/central/schema";
-import { buildIndex, colByLetter, computeRow, displayValue, rowIssues, sheetDef } from "@/lib/central/compute";
+import { ENTITY_LABEL, REF_LIST_BY_NAME, buildIndex, colByLetter, computeRow, displayValue, entityName, nextRowKey, rowIssues, sheetDef, sheetMarket } from "@/lib/central/compute";
+import { marketSummary } from "@/lib/central/metrics";
 import type { CellValue, ColumnDef, Op, RefItem, Row, SheetDef, Store } from "@/lib/central/types";
-import { applyOpsAction, syncAction, trashAction } from "@/app/(app)/central/actions";
+import { applyOpsAction, syncAction, trashAction, upsertLabelAction } from "@/app/(app)/central/actions";
 import { CellView, Floating, InlineEditor, LongTextEditor, OptionPicker, Pill, entityTargetFor, optionsFor } from "./cells";
 import { PALETTE, PALETTE_KEYS, labelColor, type PaletteKey } from "./palette";
 import { RowDrawer } from "./row-drawer";
 import { LabelsModal } from "./labels-modal";
 import { MunshiPanel } from "./munshi";
+import { MarketDashboard } from "./market-dashboard";
+import { SheetTabs } from "./sheet-tabs";
 
 /* ---------------------------------------------------------------- view model */
 
 interface View {
   hidden: string[]; widths: Record<string, number>; frozen: number; groupBy: string | null;
   sort: { key: string; dir: 1 | -1 } | null; filters: Record<string, string[]>; issuesOnly: boolean; showLookups: boolean; collapsed: string[]; showArchived?: boolean;
+  mode?: "table" | "kanban"; notesOnly?: boolean;
 }
 const GROUP_DEFAULT = ["stage_id", "status_id", "relationship_id", "type_id", "project_id"];
 const NAME_KEYS = new Set(["organisation", "name", "project", "opportunity", "partner"]);
@@ -89,11 +93,30 @@ interface Props {
   canWrite: boolean;
   link: { url: string | null; lastSync: string | null; autoSync: boolean; status: string | null; error: string | null; connected: boolean };
   initialQuery?: string;
+  /** Count of gulel notes per Central Repository organisation key (ORG-xxx). */
+  orgNotes?: Record<string, number>;
+  /** Row count per sheet for the sheet tabs between the dashboard and the toolbar. */
+  counts?: Record<string, number>;
 }
 
 type Cell = { rowId: string; key: string };
 
-export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Props) {
+/** Key of a row's free-text notes column (Notes, or Comments on Tasks). */
+function notesKeyOf(def: SheetDef) {
+  return def.columns.find((c) => c.key === "notes" && c.type === "longtext")?.key ?? def.columns.find((c) => c.key === "comments" && c.type === "longtext")?.key ?? null;
+}
+
+/** Short, unique dropdown ID for a new label (initials, else first letters), e.g. "Trade show" -> "TS". */
+function makeRefId(name: string, taken: string[]) {
+  const words = name.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  const base = (words.length > 1 ? words.map((w) => w[0]).join("") : words[0] ?? "NEW").slice(0, 3) || "NEW";
+  const used = new Set(taken.map((t) => t.toUpperCase()));
+  if (!used.has(base)) return base;
+  for (let i = 2; i < 100; i++) if (!used.has(`${base}${i}`)) return `${base}${i}`;
+  return `${base}${Date.now() % 1000}`;
+}
+
+export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNotes = {}, counts = {} }: Props) {
   const def = sheetDef(sheet);
   const router = useRouter();
   const [store, setStore] = useState<Store>(initial);
@@ -116,7 +139,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
   /* ---------- columns */
   const columns = useMemo(() => def.columns.filter((c) => c.key !== "row_check" && !view.hidden.includes(c.key) && (view.showLookups || !isLookupCol(def, c))), [def, view.hidden, view.showLookups]);
   const width = (c: ColumnDef) => view.widths[c.key] ?? Math.max(c.type === "id" ? 96 : 110, Math.min(c.type === "longtext" ? 280 : 220, c.width));
-  const LEAD = 64;
+  const LEAD = 92;
   const nameKey = (columns.find((c) => c.type === "text" || c.type === "longtext") ?? columns.find((c) => c.type === "entity") ?? columns[0])?.key ?? "";
   const frozenCount = Math.min(view.frozen, columns.length);
   const lefts = useMemo(() => {
@@ -138,6 +161,13 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
     return m;
   }, [idx, sheet, def]);
 
+  const noteKey = notesKeyOf(def);
+  const noteInfo = useCallback((r: Row) => {
+    const text = noteKey ? String(r.data[noteKey] ?? "").trim() : "";
+    const orgKey = r.sheet === "Organisations" ? r.row_key : String(r.data.org_id ?? "");
+    const gulel = orgKey ? orgNotes[orgKey] ?? 0 : 0;
+    return { text, gulel, has: !!text || gulel > 0 };
+  }, [noteKey, orgNotes]);
   const hasArchive = def.columns.some((c) => c.key === "archived");
   const archivedCount = hasArchive ? (idx.bySheet.get(sheet) ?? []).filter((r) => String(r.data.archived ?? "").toUpperCase() === "Y").length : 0;
   const visibleRows = useMemo(() => {
@@ -146,6 +176,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
     if (needle) rows = rows.filter((r) => computed.get(r.id)?.text.includes(needle));
     if (view.issuesOnly) rows = rows.filter((r) => (computed.get(r.id)?.issues.length ?? 0) > 0);
     if (hasArchive && !view.showArchived) rows = rows.filter((r) => String(r.data.archived ?? "").toUpperCase() !== "Y");
+    if (view.notesOnly) rows = rows.filter((r) => noteInfo(r).has);
     for (const [k, vals] of Object.entries(view.filters)) if (vals.length) rows = rows.filter((r) => vals.includes(String(r.data[k] ?? "")));
     if (view.sort) {
       const { key, dir } = view.sort;
@@ -160,7 +191,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
       });
     }
     return rows;
-  }, [idx, sheet, q, view.issuesOnly, view.showArchived, hasArchive, view.filters, view.sort, computed, def]);
+  }, [idx, sheet, q, view.issuesOnly, view.showArchived, view.notesOnly, noteInfo, hasArchive, view.filters, view.sort, computed, def]);
 
   const groupCol = view.groupBy ? def.columns.find((c) => c.key === view.groupBy) ?? null : null;
   const groups = useMemo(() => {
@@ -280,10 +311,88 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
     void run(rows.map((r) => ({ op: "update", sheet, key: r.id, data: { [key]: value } })), rows.map((r) => ({ op: "update", sheet, key: r.id, data: { [key]: r.data[key] ?? null } })));
   }, [run, sheet, store]);
 
+  /* ---------- add a value that is not in a dropdown yet: a new label, organisation, contact, partner… */
+  const createOption = useCallback(async (c: ColumnDef, row: Row | null, label: string): Promise<string | null> => {
+    if (!canWrite) { toast.error("You have view-only access."); return null; }
+    const name = label.trim();
+    if (!name) return null;
+    if (c.type === "ref" && c.list) {
+      const items = idx.refList.get(c.list) ?? [];
+      const id = makeRefId(name, items.map((i) => i.item_id));
+      const res = await upsertLabelAction(c.list, { item_id: id, name });
+      if (!res.ok) { toast.error(res.error); return null; }
+      const item: RefItem = { list: c.list, item_id: id, name, is_open: REF_LIST_BY_NAME.get(c.list)?.isopen ? true : null, market_id: null, color: null, position: Math.max(3, ...items.map((i) => i.position)) + 1 };
+      setStore((s) => ({ ...s, refs: [...s.refs, item] }));
+      toast.success(`Added “${name}” to ${displayHeader(def, c)}`);
+      return id;
+    }
+    if (c.type !== "entity") return null;
+    const target = entityTargetFor(c, row);
+    if (!target) { toast.error("Set the reference type first."); return null; }
+    // Reuse an organisation with the same name instead of creating a duplicate.
+    const sameOrg = (idx.bySheet.get("Organisations") ?? []).find((o) => String(o.data.organisation ?? "").trim().toLowerCase() === name.toLowerCase());
+    let ops: Op[] = [];
+    let pickSheet = "";
+    if (target === "Organisations") { ops = [{ op: "insert", sheet: "Organisations", data: { organisation: name } }]; pickSheet = "Organisations"; }
+    else if (target === "Contacts") { ops = [{ op: "insert", sheet: "Contacts", data: { name, org_id: row?.data.org_id ?? null } }]; pickSheet = "Contacts"; }
+    else if (target === "Freelancers") { ops = [{ op: "insert", sheet: "Freelancers", data: { name } }]; pickSheet = "Freelancers"; }
+    else if (target === "Projects") { ops = [{ op: "insert", sheet: "Projects", data: { project: name, org_id: row?.data.org_id ?? null } }]; pickSheet = "Projects"; }
+    else if (target === "@opportunity") { pickSheet = sheetMarket(row?.sheet ?? "") === "IN" ? "Pipeline_India" : "Pipeline_Global"; ops = [{ op: "insert", sheet: pickSheet, data: { opportunity: name } }]; }
+    else if (target === "@partner") {
+      pickSheet = sheetMarket(row?.sheet ?? "") === "IN" ? "Partners_India" : "Partners_Global";
+      const orgKey = sameOrg?.row_key ?? nextRowKey(idx, "Organisations");
+      const firstStage = (idx.refList.get("PStage") ?? [])[0]?.item_id ?? null;
+      if (!sameOrg) ops.push({ op: "insert", sheet: "Organisations", data: { org_id: orgKey, organisation: name } });
+      ops.push({ op: "insert", sheet: pickSheet, data: { org_id: orgKey, stage_id: firstStage } });
+    }
+    if (target === "Organisations" && sameOrg?.row_key) return sameOrg.row_key;
+    const res = await applyOpsAction(ops);
+    if (!res.ok) { toast.error(res.error); return null; }
+    setStore((s) => mergeRows(s, res.data.rows));
+    const created = res.data.rows.find((x) => x.sheet === pickSheet);
+    if (!created?.row_key) return null;
+    toast.success(`Created ${created.row_key} “${name}” in ${pickSheet.replace(/_/g, " ")}`, { description: "Open it on its board to fill in the rest." });
+    return created.row_key;
+  }, [canWrite, idx, def]);
+
+  /* ---------- full screen, dashboard, notes */
+  const [full, setFull] = useState(false);
+  const toggleFull = useCallback(() => {
+    setFull((f) => {
+      const next = !f;
+      try {
+        if (next && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
+        if (!next && document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+      } catch {}
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    const onFs = () => { if (!document.fullscreenElement) setFull(false); };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("[role=dialog]") && !(e.target as HTMLElement).closest?.("input,textarea")) setFull(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full]);
+  useEffect(() => {
+    document.body.style.overflow = full ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [full]);
+  const [showDash, setShowDash] = useState(true);
+  useEffect(() => { try { setShowDash(localStorage.getItem("cr:dashboard") !== "hidden"); } catch {} }, []);
+  const toggleDash = () => setShowDash((v) => { try { localStorage.setItem("cr:dashboard", v ? "hidden" : "shown"); } catch {} return !v; });
+  const markets = useMemo(() => [marketSummary(idx, "IN"), marketSummary(idx, "GL")], [idx]);
+  const [notesFor, setNotesFor] = useState<{ id: string; el: HTMLElement } | null>(null);
+
   /* ---------- realtime from other users, agents, the API and sheet pulls */
   useEffect(() => {
     const supabase = createClient();
-    const ch = supabase.channel(`cr-${sheet}`).on("postgres_changes", { event: "*", schema: "public", table: "cr_rows", filter: `sheet=eq.${sheet}` }, (p) => {
+    // Every sheet, not just this one: the dashboard above the board summarises all of them.
+    const ch = supabase.channel(`cr-${sheet}`).on("postgres_changes", { event: "*", schema: "public", table: "cr_rows" }, (p) => {
       const r = p.new as Row & { workspace_id?: string };
       if (!r?.id) return;
       setStore((s) => mergeRows(s, [{ id: r.id, sheet: r.sheet, row_key: r.row_key, data: r.data, position: r.position, color: r.color, deleted_at: r.deleted_at, updated_at: r.updated_at, updated_via: r.updated_via }]));
@@ -416,10 +525,38 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
   const activeFilters = Object.values(view.filters).filter((v) => v.length).length + (view.issuesOnly ? 1 : 0);
   const tableWidth = LEAD + columns.reduce((s, c) => s + width(c), 0) + 44;
 
+  const kanbanCol = groupCol ?? def.columns.find((c) => c.type === "ref" || c.type === "choice") ?? null;
+  const notesCount = noteKey || def.columns.some((c) => c.key === "org_id") || sheet === "Organisations" ? (idx.bySheet.get(sheet) ?? []).filter((r) => noteInfo(r).has).length : 0;
+
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className={cn("flex min-w-0 flex-col gap-3", full && "fixed inset-0 z-40 overflow-y-auto bg-canvas px-4 py-4 sm:px-6")}>
+      {!full && (
+        <section aria-label="India and Global at a glance" className={cn("flex flex-col gap-3", showDash && "min-h-[50dvh] pb-2")}>
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="eyebrow">Central Repository at a glance</p>
+              <h2 className="text-base font-semibold tracking-tight text-ink">India and Global markets</h2>
+            </div>
+            <button type="button" onClick={toggleDash} aria-expanded={showDash} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs text-ink-2 neo-raised-sm hover:text-oxblood">
+              <LayoutDashboard className="h-3.5 w-3.5" aria-hidden />{showDash ? "Hide dashboard" : "Show dashboard"}
+            </button>
+          </div>
+          {showDash && <MarketDashboard markets={markets} />}
+        </section>
+      )}
+      {!full && <SheetTabs sheet={sheet} counts={counts} />}
+      {full && (
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="truncate text-base font-semibold tracking-tight text-ink">{def.title}</h2>
+          <button type="button" onClick={toggleFull} className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs text-ink-2 neo-raised-sm hover:text-oxblood"><Minimize2 className="h-3.5 w-3.5" aria-hidden />Exit full screen<span className="text-ink-3">Esc</span></button>
+        </div>
+      )}
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="View" className="inline-flex h-8 items-center rounded-full neo-inset-sm p-0.5">
+          <button type="button" aria-pressed={view.mode !== "kanban"} onClick={() => patchView({ mode: "table" })} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs", view.mode !== "kanban" ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:text-ink")}><Table2 className="h-3.5 w-3.5" aria-hidden />Table</button>
+          <button type="button" aria-pressed={view.mode === "kanban"} disabled={!kanbanCol} onClick={() => patchView({ mode: "kanban", ...(groupCol ? {} : { groupBy: kanbanCol?.key ?? null }) })} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs disabled:opacity-40", view.mode === "kanban" ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:text-ink")}><KanbanSquare className="h-3.5 w-3.5" aria-hidden />Kanban</button>
+        </div>
         {canWrite && <Button variant="primary" size="sm" onClick={() => void addRow()}><Plus className="h-3.5 w-3.5" aria-hidden />New item</Button>}
         <label className="flex h-8 min-w-0 flex-1 basis-48 items-center gap-2 rounded-full neo-inset-sm px-3 sm:max-w-72">
           <Search className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
@@ -427,6 +564,12 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
           {q && <button type="button" onClick={() => setQ("")} aria-label="Clear search"><X className="h-3.5 w-3.5 text-ink-3" /></button>}
         </label>
         <FilterMenu def={def} idx={idx} refCols={refCols} view={view} patchView={patchView} count={activeFilters} issues={totalIssues} />
+        {notesCount > 0 && (
+          <button type="button" onClick={() => patchView({ notesOnly: !view.notesOnly })} aria-pressed={!!view.notesOnly} title="Only rows that carry notes"
+            className={cn("inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-shadow", view.notesOnly ? "neo-inset-sm text-warning" : "neo-raised-sm text-ink-2 hover:text-ink")}>
+            <StickyNote className="h-3.5 w-3.5 text-warning" aria-hidden />With notes<span className="tabular text-ink-3">{notesCount}</span>
+          </button>
+        )}
         {hasArchive && (
           <button type="button" onClick={() => patchView({ showArchived: !view.showArchived })} aria-pressed={!!view.showArchived}
             className={cn("inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-shadow", view.showArchived ? "neo-inset-sm text-ink" : "neo-raised-sm text-ink-2 hover:text-ink")}>
@@ -471,6 +614,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
           <IconBtn label="Redo (Ctrl+Y)" onClick={() => void redo()}><Redo2 className="h-3.5 w-3.5" /></IconBtn>
           <IconBtn label="Export CSV" onClick={exportCsv}><Download className="h-3.5 w-3.5" /></IconBtn>
           <IconBtn label="Deleted rows" onClick={() => void openTrash()}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+          <IconBtn label={full ? "Exit full screen (Esc)" : "Full screen"} onClick={toggleFull}>{full ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</IconBtn>
           {canWrite && <Button size="sm" onClick={() => setMunshi(true)}><Sparkles className="h-3.5 w-3.5 text-oxblood" aria-hidden />Ask Munshi</Button>}
         </div>
       </div>
@@ -492,10 +636,18 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
         </div>
       )}
 
+      {view.mode === "kanban" && kanbanCol ? (
+        <KanbanView
+          groups={groups} groupCol={kanbanCol} def={def} idx={idx} computed={computed} nameKey={nameKey} columns={columns} canWrite={canWrite} full={full}
+          noteInfo={noteInfo} onOpen={(id) => setDrawer(id)}
+          onMove={(id, key) => { const row = store.rows.find((x) => x.id === id); if (row) setCell(row, kanbanCol.key, key || null); }}
+          onAdd={(key) => void addRow(key ? { [kanbanCol.key]: key } : {})}
+        />
+      ) : (<>
       {/* grid */}
       <div
         ref={gridRef} tabIndex={0} onKeyDown={onKeyDown} role="grid" aria-label={def.name} aria-rowcount={flatRows.length}
-        className="relative max-h-[calc(100dvh-17rem)] min-h-64 overflow-auto rounded-neo neo-raised outline-none focus-visible:ring-2 focus-visible:ring-oxblood/30"
+        className={cn("relative min-h-64 overflow-auto", full ? "max-h-[calc(100dvh-9.5rem)]" : "max-h-[calc(100dvh-17rem)]", " rounded-neo neo-raised outline-none focus-visible:ring-2 focus-visible:ring-oxblood/30")}
       >
         <table className="border-separate border-spacing-0 text-sm" style={{ width: tableWidth, tableLayout: "fixed" }}>
           <colgroup>
@@ -562,6 +714,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
                     onOpen={() => setDrawer(r.id)}
                     onDragStart={() => setDragId(r.id)} onDrop={() => onDrop(r.id)} canDrag={!view.sort && canWrite}
                     onMenu={(el) => setRowMenu({ id: r.id, el })}
+                    notes={noteInfo(r)} notesKey={noteKey} onNotes={(el) => setNotesFor({ id: r.id, el })}
                   />
                 ))}
                 {!collapsed && canWrite && (
@@ -587,8 +740,9 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
         )}
       </div>
       <p className="text-[0.6875rem] text-ink-3">
-        Click a cell to select, Enter or type to edit, arrows to move, Ctrl+C / Ctrl+V to copy and paste (multi-cell paste from Excel or Sheets works), Delete to clear, Ctrl+Z to undo, Ctrl+D to duplicate. Columns marked ƒ are calculated like the sheet&apos;s formulas.
+        Click a cell to select, Enter or type to edit, arrows to move, Ctrl+C / Ctrl+V to copy and paste (multi-cell paste from Excel or Sheets works), Delete to clear, Ctrl+Z to undo, Ctrl+D to duplicate. Columns marked ƒ are calculated like the sheet&apos;s formulas. The note marker at the start of a row opens its notes.
       </p>
+      </>)}
 
       {/* editors */}
       {editing && editingCol && editingRow && ["ref", "entity", "choice"].includes(editingCol.type) && (
@@ -599,6 +753,12 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
           onPick={(v) => { setCell(editingRow, editingCol.key, v); setEditing(null); gridRef.current?.focus({ preventScroll: true }); }}
           onClose={() => { setEditing(null); gridRef.current?.focus({ preventScroll: true }); }}
           onManage={editingCol.type === "ref" && editingCol.list ? () => { setEditing(null); setLabelsList(editingCol.list!); } : undefined}
+          onCreate={canWrite && (editingCol.type === "ref" || (editingCol.type === "entity" && !!entityTargetFor(editingCol, editingRow))) ? (label) => {
+            const col = editingCol, row = editingRow;
+            setEditing(null);
+            void createOption(col, row, label).then((key) => { if (key) setCell(row, col.key, key); gridRef.current?.focus({ preventScroll: true }); });
+          } : undefined}
+          createNoun={editingCol.type === "ref" ? "label" : (ENTITY_LABEL[entityTargetFor(editingCol, editingRow) ?? "@any"] ?? "record").toLowerCase()}
         />
       )}
       {editing && editingCol && editingRow && editingCol.type === "longtext" && (
@@ -609,6 +769,18 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
         />
       )}
       {rowMenuState()}
+      {notesFor && (() => {
+        const nr = store.rows.find((x) => x.id === notesFor.id);
+        if (!nr) return null;
+        return (
+          <NotesPopover
+            key={nr.id} anchor={notesFor.el} row={nr} noteKey={noteKey} info={noteInfo(nr)} canWrite={canWrite} title={entityName(idx, nr) || nr.row_key || "Row"}
+            onSave={(v) => { if (noteKey) setCell(nr, noteKey, v.trim() === "" ? null : v); setNotesFor(null); }}
+            onOpen={() => { setNotesFor(null); setDrawer(nr.id); }}
+            onClose={() => setNotesFor(null)}
+          />
+        );
+      })()}
 
       <RowDrawer
         open={!!drawer} onOpenChange={(o) => !o && setDrawer(null)} rowId={drawer} store={live} idx={idx} def={def} canWrite={canWrite}
@@ -667,11 +839,14 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "" }: Pro
 
 /* ---------------------------------------------------------------- pieces */
 
-const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, frozenCount, idx, computed, selected, active, editingKey, dragging, groupColor, onSelect, onActivate, onEdit, onOpen, onDragStart, onDrop, canDrag, onMenu }: {
+type NoteInfo = { text: string; gulel: number; has: boolean };
+
+const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, frozenCount, idx, computed, selected, active, editingKey, dragging, groupColor, onSelect, onActivate, onEdit, onOpen, onDragStart, onDrop, canDrag, onMenu, notes, notesKey, onNotes }: {
   editor?: (c: ColumnDef) => React.ReactNode; nameKey: string; row: Row; def: SheetDef; columns: ColumnDef[]; lefts: number[]; frozenCount: number; idx: ReturnType<typeof buildIndex>;
   computed: { all: Record<string, CellValue>; issues: string[] }; selected: boolean; active: string | null; editingKey: string | null; dragging: boolean; groupColor: PaletteKey;
   onSelect: (on: boolean) => void; onActivate: (key: string) => void; onEdit: (key: string) => void; onOpen: () => void;
   onDragStart: () => void; onDrop: () => void; canDrag: boolean; onMenu: (el: HTMLElement) => void;
+  notes: NoteInfo; notesKey: string | null; onNotes: (el: HTMLElement) => void;
 }) {
   const isOpen = computed.all.is_open !== "N";
   const tint = row.color && row.color in PALETTE ? PALETTE[row.color as PaletteKey].row : "";
@@ -688,6 +863,7 @@ const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, 
           {computed.issues.length > 0 ? (
             <span title={computed.issues.join("\n")} className="grid h-5 w-5 place-items-center"><AlertTriangle className="h-3.5 w-3.5 text-warning" aria-label={`${computed.issues.length} data issue(s): ${computed.issues.join("; ")}`} /></span>
           ) : <span className="grid h-5 w-5 place-items-center" title="Row check: OK"><Check className="h-3 w-3 text-ink-3/50" aria-hidden /></span>}
+          <NoteMarker notes={notes} enabled={!!notesKey || notes.gulel > 0 || row.sheet === "Organisations" || "org_id" in row.data} onOpen={onNotes} />
         </div>
       </td>
       {columns.map((c, i) => {
@@ -711,6 +887,7 @@ const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, 
               c.type === "formula" && "bg-sunken/30",
               c.type === "ref" && "px-1.5 text-center",
               invalid && "ring-1 ring-inset ring-danger/50",
+              c.key === notesKey && notes.text && "bg-warning/[0.07] shadow-[inset_3px_0_0_var(--state-warning)]",
               isActive && "z-[15] outline outline-2 -outline-offset-2 outline-oxblood",
               editingKey === c.key && c.type === "date" && "overflow-visible",
             )}
@@ -732,6 +909,122 @@ const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, 
     </tr>
   );
 });
+
+/** The notes marker at the start of each row: an amber chip when the row (or its organisation in gulel) has notes. */
+function NoteMarker({ notes, enabled, onOpen }: { notes: NoteInfo; enabled: boolean; onOpen: (el: HTMLElement) => void }) {
+  if (!enabled) return <span className="w-6" aria-hidden />;
+  const preview = [
+    notes.text ? notes.text.slice(0, 240) + (notes.text.length > 240 ? "…" : "") : "",
+    notes.gulel ? `${notes.gulel} note${notes.gulel > 1 ? "s" : ""} on the organisation in gulel` : "",
+  ].filter(Boolean).join("\n\n");
+  return (
+    <button
+      type="button" onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }} onMouseDown={(e) => e.stopPropagation()}
+      title={notes.has ? preview : "Add a note"} aria-label={notes.has ? `Notes: ${preview}` : "Add a note"}
+      className={cn("inline-flex h-5 min-w-6 items-center justify-center gap-0.5 rounded-full px-1 text-[0.625rem] font-semibold tabular",
+        notes.has ? "bg-warning/15 text-warning ring-1 ring-inset ring-warning/35 hover:bg-warning/25" : "text-ink-3 opacity-0 hover:text-oxblood focus-visible:opacity-100 group-hover:opacity-70")}
+    >
+      <StickyNote className="h-3 w-3" aria-hidden />{notes.gulel > 0 ? notes.gulel + (notes.text ? 1 : 0) : null}
+    </button>
+  );
+}
+
+function NotesPopover({ anchor, row, noteKey, info, canWrite, title, onSave, onOpen, onClose }: {
+  anchor: HTMLElement; row: Row; noteKey: string | null; info: NoteInfo; canWrite: boolean; title: string; onSave: (v: string) => void; onOpen: () => void; onClose: () => void;
+}) {
+  const initial = noteKey ? String(row.data[noteKey] ?? "") : "";
+  const [v, setV] = useState(initial);
+  const done = useRef(false);
+  const close = () => { if (done.current) return; done.current = true; if (noteKey && canWrite && v !== initial) onSave(v); else onClose(); };
+  return (
+    <Floating anchor={anchor} onClose={close} width={380}>
+      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2.5">
+        <StickyNote className="h-4 w-4 shrink-0 text-warning" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">Notes · {title}</span>
+        <span className="font-mono text-[0.625rem] text-ink-3">{row.row_key}</span>
+      </div>
+      {noteKey ? (
+        <div className="flex flex-col gap-1.5 px-3 pt-3">
+          <textarea
+            autoFocus value={v} onChange={(e) => setV(e.target.value)} readOnly={!canWrite} aria-label="Notes" placeholder="Plain text. Saved to the board and the Google Sheet."
+            className="min-h-36 resize-y rounded-neo neo-inset-sm px-3 py-2 text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3"
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); close(); }
+              else if (e.key === "Escape") { e.preventDefault(); done.current = true; onClose(); }
+            }}
+          />
+          <span className="text-[0.6875rem] text-ink-3">Ctrl+Enter or click away to save · Esc to discard</span>
+        </div>
+      ) : <p className="px-3 pt-3 text-xs text-ink-3">This sheet has no notes column; notes live on the organisation in gulel.</p>}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-hairline px-3 py-2">
+        <span className="text-xs text-ink-2">{info.gulel ? `${info.gulel} more note${info.gulel > 1 ? "s" : ""} in gulel` : "Notes, files and history"}</span>
+        <button type="button" onClick={() => { done.current = true; if (noteKey && canWrite && v !== initial) onSave(v); onOpen(); }} className="rounded-full px-2.5 py-1 text-xs font-medium text-oxblood hover:bg-sunken/70">Open item</button>
+      </div>
+    </Floating>
+  );
+}
+
+function KanbanView({ groups, groupCol, def, idx, computed, nameKey, columns, canWrite, full, noteInfo, onOpen, onMove, onAdd }: {
+  groups: { key: string; label: string; color: PaletteKey; rows: Row[] }[]; groupCol: ColumnDef; def: SheetDef; idx: ReturnType<typeof buildIndex>;
+  computed: Map<string, { all: Record<string, CellValue>; issues: string[] }>; nameKey: string; columns: ColumnDef[]; canWrite: boolean; full: boolean;
+  noteInfo: (r: Row) => NoteInfo; onOpen: (id: string) => void; onMove: (id: string, key: string) => void; onAdd: (key: string) => void;
+}) {
+  const [over, setOver] = useState<string | null>(null);
+  const fields = columns.filter((c) => c.key !== nameKey && c.key !== groupCol.key && c.type !== "id" && c.type !== "longtext");
+  const nameCol = def.columns.find((c) => c.key === nameKey);
+  return (
+    <div className={cn("flex gap-3 overflow-x-auto pb-2", full ? "h-[calc(100dvh-9.5rem)]" : "h-[calc(100dvh-17rem)] min-h-96")}>
+      {groups.map((g) => (
+        <section
+          key={g.key} aria-label={g.label}
+          onDragOver={(e) => { if (canWrite) { e.preventDefault(); setOver(g.key); } }} onDragLeave={() => setOver((o) => (o === g.key ? null : o))}
+          onDrop={(e) => { e.preventDefault(); setOver(null); const id = e.dataTransfer.getData("text/plain"); if (id && g.key !== "__all") onMove(id, g.key); }}
+          className={cn("flex w-72 shrink-0 flex-col rounded-neo neo-inset-sm", over === g.key && "ring-2 ring-oxblood/40")}
+        >
+          <header className="flex items-center gap-2 px-3 pb-2 pt-3">
+            <span className={cn("h-3 w-1 rounded-full", PALETTE[g.color].bar)} aria-hidden />
+            <span className="truncate text-sm font-semibold text-ink">{g.label}</span>
+            <span className="ml-auto text-xs tabular text-ink-3">{g.rows.length}</span>
+          </header>
+          <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+            {g.rows.map((r) => {
+              const all = computed.get(r.id)?.all ?? {};
+              const title = (nameCol ? displayValue(idx, nameCol, all[nameKey], r) : "") || r.row_key || "Untitled";
+              const n = noteInfo(r);
+              const shown = fields.filter((c) => all[c.key] !== null && all[c.key] !== undefined && all[c.key] !== "").slice(0, 4);
+              return (
+                <li key={r.id}>
+                  <button
+                    type="button" draggable={canWrite} onDragStart={(e) => e.dataTransfer.setData("text/plain", r.id)} onClick={() => onOpen(r.id)}
+                    className={cn("flex w-full flex-col gap-1.5 rounded-neo-sm bg-canvas p-3 text-left neo-raised-sm transition-shadow hover:shadow-[var(--raise-md)]", r.color && r.color in PALETTE && "border-l-[3px]")}
+                    style={r.color && r.color in PALETTE ? { borderLeftColor: `var(--color-${colorVar(r.color as PaletteKey)})` } : undefined}
+                  >
+                    <span className="flex items-start gap-2">
+                      <span className="min-w-0 flex-1 text-sm font-medium leading-snug text-ink">{title}</span>
+                      {n.has && <span title={n.text || `${n.gulel} note(s) in gulel`} className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-warning/15 px-1.5 py-0.5 text-[0.625rem] font-semibold text-warning ring-1 ring-inset ring-warning/35"><StickyNote className="h-3 w-3" aria-hidden />{n.gulel || null}</span>}
+                    </span>
+                    {r.row_key && <span className="font-mono text-[0.625rem] text-ink-3">{r.row_key}</span>}
+                    {shown.map((c) => (
+                      <span key={c.key} className="flex min-w-0 items-center gap-2 text-xs">
+                        <span className="w-20 shrink-0 truncate text-ink-3">{displayHeader(def, c)}</span>
+                        <span className="min-w-0 flex-1 truncate"><CellView c={c} value={all[c.key]} row={r} idx={idx} isOpen={all.is_open !== "N"} /></span>
+                      </span>
+                    ))}
+                    {n.text && <span className="line-clamp-2 border-l-2 border-warning/60 pl-2 text-xs text-ink-2">{n.text}</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {canWrite && g.key !== "__all" && (
+            <button type="button" onClick={() => onAdd(g.key)} className="flex items-center gap-1.5 px-3 py-2 text-xs text-ink-3 hover:text-oxblood"><Plus className="h-3.5 w-3.5" aria-hidden />Add item</button>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
 
 function colorVar(k: PaletteKey) {
   return ({ green: "oxblood", moss: "chart-2", olive: "chart-4", amber: "warning", red: "danger", taupe: "chart-3", cream: "buttercream", grey: "ink-3" } as const)[k];

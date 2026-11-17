@@ -6,7 +6,7 @@ import { cn } from "@/components/neo/cn";
 
 const TABS = [
   { href: "/central", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/central/board", label: "Board", icon: Table2 },
+  { href: "/central/board", label: "Boards", icon: Table2 },
   { href: "/central/sync", label: "Sync & access", icon: RefreshCw },
 ] as const;
 
