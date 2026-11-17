@@ -38,12 +38,15 @@ async function runLinkedInFind(j: Job) {
   const orgId = j.payload.organisation_id as string;
   const userId = (j.payload.user_id as string | null) ?? null;
   const found = await findOrgLinkedIn(j.workspace_id, orgId, userId);
-  if (j.payload.then_qualify) {
-    const admin = createAdminClient();
-    const { count } = await admin.from("jobs").select("id", { count: "exact", head: true }).eq("workspace_id", j.workspace_id).eq("type", "qualification").in("status", ["queued", "running"]).contains("payload", { organisation_id: orgId });
-    if (!count) await enqueueJob(j.workspace_id, "qualification", { organisation_id: orgId, user_id: userId }, { maxAttempts: 2 });
-  }
+  // Next: gather dated, sourced evidence (news), which then hands over to qualification.
+  if (j.payload.then_qualify) await enqueueOnce(j.workspace_id, "news_enrich", { organisation_id: orgId, user_id: userId, then_qualify: true });
   return found;
+}
+
+async function enqueueOnce(workspaceId: string, type: string, payload: Record<string, unknown>) {
+  const admin = createAdminClient();
+  const { count } = await admin.from("jobs").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("type", type).in("status", ["queued", "running"]).contains("payload", { organisation_id: payload.organisation_id });
+  if (!count) await enqueueJob(workspaceId, type, payload, { maxAttempts: 2, timeoutSeconds: 300 });
 }
 
 /** Schedules recurring work idempotently (one gmail_sync per account per 5-minute slot). */
@@ -188,6 +191,15 @@ async function runPeopleDiscovery(j: Job) {
 }
 
 async function runNewsEnrich(j: Job) {
+  try {
+    return await newsEnrichInner(j);
+  } finally {
+    // Qualify even if no news was found: unknowns are reported as reduced coverage, never as negatives.
+    if (j.payload.then_qualify) await enqueueOnce(j.workspace_id, "qualification", { organisation_id: j.payload.organisation_id, user_id: (j.payload.user_id as string | null) ?? null });
+  }
+}
+
+async function newsEnrichInner(j: Job) {
   const admin = createAdminClient();
   const orgId = j.payload.organisation_id as string;
   const userId = (j.payload.user_id as string | null) ?? "system";

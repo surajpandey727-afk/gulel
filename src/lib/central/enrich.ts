@@ -76,7 +76,7 @@ export async function queueRepositoryQualification(workspaceId: string, userId: 
   const { data: orgs } = await admin.from("organisations").select("id, cr_key, lead_qualifications(is_current)").eq("workspace_id", workspaceId).not("cr_key", "is", null).is("deleted_at", null).is("archived_at", null);
   const { data: channels } = await admin.from("contact_channels").select("organisation_id").eq("workspace_id", workspaceId).eq("channel", "linkedin").is("contact_id", null);
   const hasLi = new Set((channels ?? []).map((c) => c.organisation_id));
-  const { data: open } = await admin.from("jobs").select("type, payload").eq("workspace_id", workspaceId).in("type", ["linkedin_find", "qualification"]).in("status", ["queued", "running"]);
+  const { data: open } = await admin.from("jobs").select("type, payload").eq("workspace_id", workspaceId).in("type", ["linkedin_find", "qualification", "news_enrich"]).in("status", ["queued", "running"]);
   const busy = new Set((open ?? []).map((j) => `${j.type}:${(j.payload as { organisation_id?: string }).organisation_id}`));
   let finding = 0, qualifying = 0, skipped = 0;
   for (const o of orgs ?? []) {
@@ -87,8 +87,9 @@ export async function queueRepositoryQualification(workspaceId: string, userId: 
       await admin.from("jobs").insert({ workspace_id: workspaceId, type: "linkedin_find", payload: { organisation_id: o.id, user_id: userId, then_qualify: !qualified || !!opts.requalify }, max_attempts: 2, timeout_seconds: 300 });
       finding++;
     } else {
-      if (busy.has(`qualification:${o.id}`)) { skipped++; continue; }
-      await admin.from("jobs").insert({ workspace_id: workspaceId, type: "qualification", payload: { organisation_id: o.id, user_id: userId }, max_attempts: 2, timeout_seconds: 300 });
+      if (busy.has(`qualification:${o.id}`) || busy.has(`news_enrich:${o.id}`)) { skipped++; continue; }
+      // Gather sourced evidence first; news enrichment hands over to qualification when it finishes.
+      await admin.from("jobs").insert({ workspace_id: workspaceId, type: "news_enrich", payload: { organisation_id: o.id, user_id: userId, then_qualify: true }, max_attempts: 2, timeout_seconds: 300 });
       qualifying++;
     }
   }
