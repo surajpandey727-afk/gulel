@@ -52,8 +52,8 @@ export async function reconcile(workspaceId: string, db: Db = createAdminClient(
   const repoContacts = store.rows.filter((r) => r.sheet === "Contacts" && r.row_key);
 
   const orgs = await allRows<CoreOrg>(() => db.from("organisations"), "id, trading_name, legal_name, normalised_name, website, primary_domain, primary_market, sector, city, country, cr_key, archived_at, deleted_at", workspaceId);
-  const orgChannels = await allRows<{ id: string; organisation_id: string; contact_id: string | null; channel: string; value: string }>(() => db.from("contact_channels"), "id, organisation_id, contact_id, channel, value", workspaceId);
-  const liByOrg = new Map<string, { id: string; value: string }>();
+  const orgChannels = await allRows<{ id: string; organisation_id: string; contact_id: string | null; channel: string; value: string; created_at: string }>(() => db.from("contact_channels"), "id, organisation_id, contact_id, channel, value, created_at", workspaceId);
+  const liByOrg = new Map<string, { id: string; value: string; created_at?: string }>();
   for (const c of orgChannels) if (c.channel === "linkedin" && c.organisation_id && !c.contact_id) liByOrg.set(c.organisation_id, c);
 
   const byKey = new Map(orgs.filter((o) => o.cr_key && !o.deleted_at).map((o) => [o.cr_key!, o]));
@@ -61,6 +61,19 @@ export async function reconcile(workspaceId: string, db: Db = createAdminClient(
   const unlinked = orgs.filter((o) => !o.cr_key && !o.deleted_at);
   const repoFill: Op[] = [];
   const orgIdByKey = new Map<string, string>();
+
+  // A person clearing Website / LinkedIn on the board or Sheet must stick: find each row's latest edit to those fields.
+  const { data: changes } = await db.from("cr_changes").select("row_key, before, after, via, created_at")
+    .eq("workspace_id", workspaceId).eq("sheet", "Organisations").eq("action", "update").neq("via", "system").order("created_at", { ascending: false }).limit(5000);
+  const lastEdit = new Map<string, { cleared: boolean; at: string }>(); // `${key}:${field}`
+  for (const c of changes ?? []) {
+    for (const f of ["website", "linkedin_url"]) {
+      const id = `${c.row_key}:${f}`;
+      if (lastEdit.has(id)) continue;
+      const b = s((c.before as Record<string, unknown> | null)?.[f]), a = s((c.after as Record<string, unknown> | null)?.[f]);
+      if (b !== a) lastEdit.set(id, { cleared: !a && !!b, at: c.created_at as string });
+    }
+  }
 
   for (const r of repoOrgs) {
     const key = r.row_key!;
@@ -142,7 +155,8 @@ export async function reconcile(workspaceId: string, db: Db = createAdminClient(
         if (!clash) { patch.website = website; patch.primary_domain = dom; }
         else rep.errors.push(`${key}: website ${dom} is already used by another gulel organisation`);
       } else if (!website && org.website) {
-        repoFill.push({ op: "update", sheet: "Organisations", key, data: { website: org.website } });
+        if (lastEdit.get(`${key}:website`)?.cleared) { patch.website = null; patch.primary_domain = null; }
+        else repoFill.push({ op: "update", sheet: "Organisations", key, data: { website: org.website } });
       }
       if (Object.keys(patch).length) {
         const { error } = await db.from("organisations").update(patch).eq("id", org.id);
@@ -161,12 +175,17 @@ export async function reconcile(workspaceId: string, db: Db = createAdminClient(
           if (have) await db.from("contact_channels").delete().eq("id", have.id);
           if (!taken) {
             const { data: ch } = await db.from("contact_channels").insert({ workspace_id: workspaceId, organisation_id: org.id, channel: "linkedin", value: linkedin, verification_status: "candidate", source: "central_repository" }).select("id").single();
-            if (ch) { liByOrg.set(org.id, { id: ch.id, value: linkedin }); orgChannels.push({ id: ch.id, organisation_id: org.id, contact_id: null, channel: "linkedin", value: linkedin }); }
+            if (ch) { liByOrg.set(org.id, { id: ch.id, value: linkedin }); orgChannels.push({ id: ch.id, organisation_id: org.id, contact_id: null, channel: "linkedin", value: linkedin, created_at: new Date().toISOString() }); }
           }
           rep.orgsUpdated++;
         }
       } else if (!linkedin && have) {
-        repoFill.push({ op: "update", sheet: "Organisations", key, data: { linkedin_url: have.value } });
+        const cleared = lastEdit.get(`${key}:linkedin_url`);
+        if (cleared?.cleared && (!have.created_at || cleared.at > have.created_at)) {
+          await db.from("contact_channels").delete().eq("id", have.id);
+          liByOrg.delete(org.id);
+          rep.orgsUpdated++;
+        } else repoFill.push({ op: "update", sheet: "Organisations", key, data: { linkedin_url: have.value } });
       }
     } catch (e) {
       rep.errors.push(`${key}: ${(e as Error).message}`);
