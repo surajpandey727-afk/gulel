@@ -23,11 +23,17 @@ export default async function BoardPage({ params, searchParams }: { params: Prom
   if (!SHEETS.some((s) => s.name === sheet)) notFound();
   const s = await getSession();
   const db = await createClient();
-  const [store, link, notes] = await Promise.all([
+  const [store, link, notes, files] = await Promise.all([
     loadStore(db, s.workspaceId),
     getLinkState(db, s.workspaceId),
     db.from("notes").select("organisations!inner(cr_key)").eq("workspace_id", s.workspaceId).is("deleted_at", null).not("organisation_id", "is", null).not("organisations.cr_key", "is", null).limit(5000),
+    db.from("organisation_files").select("organisations!inner(cr_key)").eq("workspace_id", s.workspaceId).is("deleted_at", null).not("organisations.cr_key", "is", null).limit(5000),
   ]);
+  const orgFiles: Record<string, number> = {};
+  for (const f of (files.data ?? []) as unknown as { organisations: { cr_key: string | null } | null }[]) {
+    const k = f.organisations?.cr_key;
+    if (k) orgFiles[k] = (orgFiles[k] ?? 0) + 1;
+  }
   const orgNotes: Record<string, number> = {};
   for (const n of (notes.data ?? []) as unknown as { organisations: { cr_key: string | null } | null }[]) {
     const k = n.organisations?.cr_key;
@@ -42,5 +48,5 @@ export default async function BoardPage({ params, searchParams }: { params: Prom
     after(() => syncNow(s.workspaceId, s.userId).catch(() => {}));
   }
 
-  return <Board key={sheet} sheet={sheet} initial={store} canWrite={s.role !== "viewer"} link={linkProps(link)} initialQuery={q ?? ""} orgNotes={orgNotes} counts={Object.fromEntries(counts)} />;
+  return <Board key={sheet} sheet={sheet} initial={store} canWrite={s.role !== "viewer"} link={linkProps(link)} initialQuery={q ?? ""} orgNotes={orgNotes} orgFiles={orgFiles} counts={Object.fromEntries(counts)} />;
 }

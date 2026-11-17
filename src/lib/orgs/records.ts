@@ -10,7 +10,7 @@ export type NoteVia = "ui" | "agent" | "api" | "inbox";
 export type FileVia = "ui" | "agent" | "api";
 
 export interface NoteRow { id: string; body: string; organisation_id: string | null; contact_id: string | null; via: string; created_at: string; updated_at: string; created_by: string | null; author: string | null }
-export interface FileRow { id: string; name: string; size_bytes: number; mime_type: string | null; via: string; uploaded_label: string | null; created_at: string; organisation_id: string }
+export interface FileRow { id: string; name: string; size_bytes: number; mime_type: string | null; via: string; uploaded_label: string | null; created_at: string; organisation_id: string; tags: string[]; notes: string | null }
 
 export const BUCKET = "org-files";
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -74,10 +74,29 @@ export async function deleteNote(db: Db, workspaceId: string, id: string) {
 // ---------------------------------------------------------------- files
 export async function listFiles(db: Db, workspaceId: string, orgIds: string[]): Promise<FileRow[]> {
   if (!orgIds.length) return [];
-  const { data, error } = await db.from("organisation_files").select("id, name, size_bytes, mime_type, via, uploaded_label, created_at, organisation_id")
+  const { data, error } = await db.from("organisation_files").select("id, name, size_bytes, mime_type, via, uploaded_label, created_at, organisation_id, tags, notes")
     .eq("workspace_id", workspaceId).in("organisation_id", orgIds).is("deleted_at", null).order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []) as FileRow[];
+  return ((data ?? []) as FileRow[]).map((f) => ({ ...f, tags: f.tags ?? [] }));
+}
+
+/** Open string tags: trimmed, de-duplicated (case-insensitive), at most 12 of up to 40 characters. */
+export function cleanTags(tags: unknown): string[] {
+  const out: string[] = [];
+  for (const t of Array.isArray(tags) ? tags : []) {
+    const v = String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (v && !out.some((x) => x.toLowerCase() === v.toLowerCase())) out.push(v);
+  }
+  return out.slice(0, 12);
+}
+
+export async function updateFileMeta(db: Db, workspaceId: string, fileId: string, patch: { tags?: string[]; notes?: string | null }) {
+  const row: Record<string, unknown> = {};
+  if (patch.tags !== undefined) row.tags = cleanTags(patch.tags);
+  if (patch.notes !== undefined) row.notes = patch.notes && patch.notes.trim() ? patch.notes.slice(0, 10000) : null;
+  if (!Object.keys(row).length) return;
+  const { error } = await db.from("organisation_files").update(row).eq("id", fileId).eq("workspace_id", workspaceId).is("deleted_at", null);
+  if (error) throw new Error(error.message);
 }
 
 const safeName = (n: string) => n.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 180) || "file";
@@ -92,7 +111,7 @@ export async function createUpload(workspaceId: string, orgId: string, name: str
   return { path, token: data.token };
 }
 
-export async function recordFile(workspaceId: string, f: { orgId: string; path: string; name: string; mime: string | null; via: FileVia; userId: string | null; label?: string | null }) {
+export async function recordFile(workspaceId: string, f: { orgId: string; path: string; name: string; mime: string | null; via: FileVia; userId: string | null; label?: string | null; tags?: string[]; notes?: string | null }) {
   if (!f.path.startsWith(`${workspaceId}/${f.orgId}/`)) throw new Error("That upload doesn't belong to this organisation.");
   const admin = createAdminClient();
   const dir = f.path.split("/").slice(0, -1).join("/");
@@ -103,6 +122,7 @@ export async function recordFile(workspaceId: string, f: { orgId: string; path: 
   const { data, error } = await admin.from("organisation_files").upsert({
     workspace_id: workspaceId, organisation_id: f.orgId, name: safeName(f.name), path: f.path, size_bytes: Number(obj.metadata?.size ?? 0),
     mime_type: f.mime || (obj.metadata?.mimetype as string | undefined) || null, via: f.via, uploaded_by: f.userId, uploaded_label: f.label ?? null,
+    ...(f.tags ? { tags: cleanTags(f.tags) } : {}), ...(f.notes ? { notes: f.notes.slice(0, 10000) } : {}),
   }, { onConflict: "path" }).select("id").single();
   if (error) throw new Error(error.message);
   return data.id as string;

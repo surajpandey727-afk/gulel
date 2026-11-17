@@ -82,7 +82,15 @@ export function OrgFiles({ organisationId, initial, canWrite = true, compact }: 
           {files.map((f) => (
             <li key={f.id} className="group flex items-center gap-3 rounded-neo-sm px-2 py-1.5 hover:neo-inset-sm">
               <FileText className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
-              <button type="button" onClick={() => open(f.id, false)} className="min-w-0 flex-1 truncate text-left text-sm text-ink hover:text-oxblood" title={f.name}>{f.name}</button>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <button type="button" onClick={() => open(f.id, false)} className="truncate text-left text-sm text-ink hover:text-oxblood" title={f.name}>{f.name}</button>
+                {(f.tags?.length > 0 || f.notes) && (
+                  <span className="flex min-w-0 flex-wrap items-center gap-1 text-[0.6875rem] text-ink-3">
+                    {f.tags?.map((t) => <span key={t} className="rounded-full bg-oxblood/10 px-1.5 text-oxblood">{t}</span>)}
+                    {f.notes && <span className="truncate" title={f.notes}>{f.notes}</span>}
+                  </span>
+                )}
+              </span>
               <span className="hidden shrink-0 items-center gap-1 text-[0.6875rem] text-ink-3 sm:flex">
                 {f.via !== "ui" && <Bot className="h-3 w-3" aria-hidden />}{f.via !== "ui" ? (f.uploaded_label ?? "AI agent") : ""}{f.via !== "ui" ? " · " : ""}{size(f.size_bytes)} · {when(f.created_at)}
               </span>

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle, Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Columns3, Copy, Download, EyeOff, Filter, GripVertical,
-  KanbanSquare, LayoutDashboard, Layers, Lock, Maximize2, Minimize2, MoreHorizontal, Palette, Plus, Redo2, RefreshCw, RotateCcw, Search, Sparkles, StickyNote, Table2, Trash2, Undo2, X,
+  KanbanSquare, LayoutDashboard, Layers, Lock, Maximize2, Minimize2, MoreHorizontal, Palette, Plus, Redo2, RefreshCw, RotateCcw, Search, Paperclip, Sparkles, StickyNote, Table2, Trash2, Undo2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/neo/button";
@@ -23,6 +23,7 @@ import { LabelsModal } from "./labels-modal";
 import { MunshiPanel } from "./munshi";
 import { MarketDashboard } from "./market-dashboard";
 import { SheetTabs } from "./sheet-tabs";
+import { DocsMarker, DocumentsDialog } from "./documents";
 
 /* ---------------------------------------------------------------- view model */
 
@@ -95,6 +96,8 @@ interface Props {
   initialQuery?: string;
   /** Count of gulel notes per Central Repository organisation key (ORG-xxx). */
   orgNotes?: Record<string, number>;
+  /** Count of documents per Central Repository organisation key (ORG-xxx). */
+  orgFiles?: Record<string, number>;
   /** Row count per sheet for the sheet tabs between the dashboard and the toolbar. */
   counts?: Record<string, number>;
 }
@@ -116,7 +119,7 @@ function makeRefId(name: string, taken: string[]) {
   return `${base}${Date.now() % 1000}`;
 }
 
-export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNotes = {}, counts = {} }: Props) {
+export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNotes = {}, orgFiles = {}, counts = {} }: Props) {
   const def = sheetDef(sheet);
   const router = useRouter();
   const [store, setStore] = useState<Store>(initial);
@@ -139,7 +142,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
   /* ---------- columns */
   const columns = useMemo(() => def.columns.filter((c) => c.key !== "row_check" && !view.hidden.includes(c.key) && (view.showLookups || !isLookupCol(def, c))), [def, view.hidden, view.showLookups]);
   const width = (c: ColumnDef) => view.widths[c.key] ?? Math.max(c.type === "id" ? 96 : 110, Math.min(c.type === "longtext" ? 280 : 220, c.width));
-  const LEAD = 92;
+  const LEAD = 118;
   const nameKey = (columns.find((c) => c.type === "text" || c.type === "longtext") ?? columns.find((c) => c.type === "entity") ?? columns[0])?.key ?? "";
   const frozenCount = Math.min(view.frozen, columns.length);
   const lefts = useMemo(() => {
@@ -387,6 +390,12 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
   const toggleDash = () => setShowDash((v) => { try { localStorage.setItem("cr:dashboard", v ? "hidden" : "shown"); } catch {} return !v; });
   const markets = useMemo(() => [marketSummary(idx, "IN"), marketSummary(idx, "GL")], [idx]);
   const [notesFor, setNotesFor] = useState<{ id: string; el: HTMLElement } | null>(null);
+  const [docCounts, setDocCounts] = useState<Record<string, number>>(orgFiles);
+  useEffect(() => setDocCounts(orgFiles), [orgFiles]);
+  const [docsFor, setDocsFor] = useState<{ orgKey: string; title: string; uploadNow: boolean } | null>(null);
+  const orgKeyOf = useCallback((r: Row) => (r.sheet === "Organisations" ? r.row_key : String(r.data.org_id ?? "")) || null, []);
+  const docKey = docsFor?.orgKey ?? null;
+  const onDocCount = useCallback((n: number) => { if (docKey) setDocCounts((c) => (c[docKey] === n ? c : { ...c, [docKey]: n })); }, [docKey]);
 
   /* ---------- realtime from other users, agents, the API and sheet pulls */
   useEffect(() => {
@@ -667,6 +676,10 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
                   checked={allIds.length > 0 && allIds.every((id) => selected.has(id))}
                   onChange={(e) => setSelected(e.target.checked ? new Set(allIds) : new Set())}
                 />
+                <span className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-ink-3" aria-hidden>
+                  <Tip content="Notes: amber when a row has notes"><StickyNote className="h-3 w-3" /></Tip>
+                  <Tip content="Documents: click a row's clip to open or upload"><Paperclip className="h-3 w-3" /></Tip>
+                </span>
               </th>
               {columns.map((c, i) => (
                 <HeaderCell
@@ -719,6 +732,8 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
                     onDragStart={() => setDragId(r.id)} onDrop={() => onDrop(r.id)} canDrag={!view.sort && canWrite}
                     onMenu={(el) => setRowMenu({ id: r.id, el })}
                     notes={noteInfo(r)} notesKey={noteKey} onNotes={(el) => setNotesFor({ id: r.id, el })}
+                    docs={orgKeyOf(r) ? docCounts[orgKeyOf(r)!] ?? 0 : -1}
+                    onDocs={() => { const k = orgKeyOf(r); if (k) setDocsFor({ orgKey: k, title: entityName(idx, r) || k, uploadNow: canWrite && !(docCounts[k] > 0) }); }}
                   />
                 ))}
                 {!collapsed && canWrite && (
@@ -773,6 +788,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
         />
       )}
       {rowMenuState()}
+      {docsFor && <DocumentsDialog key={docsFor.orgKey} orgKey={docsFor.orgKey} title={docsFor.title} uploadNow={docsFor.uploadNow} canWrite={canWrite} onClose={() => setDocsFor(null)} onCount={onDocCount} />}
       {notesFor && (() => {
         const nr = store.rows.find((x) => x.id === notesFor.id);
         if (!nr) return null;
@@ -845,12 +861,14 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
 
 type NoteInfo = { text: string; gulel: number; has: boolean };
 
-const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, frozenCount, idx, computed, selected, active, editingKey, dragging, groupColor, onSelect, onActivate, onEdit, onOpen, onDragStart, onDrop, canDrag, onMenu, notes, notesKey, onNotes }: {
+const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, frozenCount, idx, computed, selected, active, editingKey, dragging, groupColor, onSelect, onActivate, onEdit, onOpen, onDragStart, onDrop, canDrag, onMenu, notes, notesKey, onNotes, docs, onDocs }: {
   editor?: (c: ColumnDef) => React.ReactNode; nameKey: string; row: Row; def: SheetDef; columns: ColumnDef[]; lefts: number[]; frozenCount: number; idx: ReturnType<typeof buildIndex>;
   computed: { all: Record<string, CellValue>; issues: string[] }; selected: boolean; active: string | null; editingKey: string | null; dragging: boolean; groupColor: PaletteKey;
   onSelect: (on: boolean) => void; onActivate: (key: string) => void; onEdit: (key: string) => void; onOpen: () => void;
   onDragStart: () => void; onDrop: () => void; canDrag: boolean; onMenu: (el: HTMLElement) => void;
   notes: NoteInfo; notesKey: string | null; onNotes: (el: HTMLElement) => void;
+  /** Documents on the row's organisation; -1 when the row has no organisation. */
+  docs: number; onDocs: () => void;
 }) {
   const isOpen = computed.all.is_open !== "N";
   const tint = row.color && row.color in PALETTE ? PALETTE[row.color as PaletteKey].row : "";
@@ -868,6 +886,7 @@ const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, 
             <span title={computed.issues.join("\n")} className="grid h-5 w-5 place-items-center"><AlertTriangle className="h-3.5 w-3.5 text-warning" aria-label={`${computed.issues.length} data issue(s): ${computed.issues.join("; ")}`} /></span>
           ) : <span className="grid h-5 w-5 place-items-center" title="Row check: OK"><Check className="h-3 w-3 text-ink-3/50" aria-hidden /></span>}
           <NoteMarker notes={notes} enabled={!!notesKey || notes.gulel > 0 || row.sheet === "Organisations" || "org_id" in row.data} onOpen={onNotes} />
+          <DocsMarker count={Math.max(0, docs)} enabled={docs >= 0} onOpen={onDocs} />
         </div>
       </td>
       {columns.map((c, i) => {
@@ -885,19 +904,20 @@ const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, 
             style={frozen ? { left: lefts[i] } : undefined}
             className={cn(
               "relative h-9 overflow-hidden border-b border-l border-hairline/60 px-2.5 align-middle",
-              bg, tint,
+              // Solid background always (frozen columns must hide what scrolls under them); tints go on an overlay.
+              bg,
               frozen && "sticky z-10",
               i === frozenCount - 1 && "shadow-[6px_0_8px_-6px_rgba(0,0,0,0.18)]",
-              c.type === "formula" && "bg-sunken/30",
               c.type === "ref" && "px-1.5 text-center",
               invalid && "ring-1 ring-inset ring-danger/50",
-              c.key === notesKey && notes.text && "bg-warning/[0.07] shadow-[inset_3px_0_0_var(--state-warning)]",
+              c.key === notesKey && notes.text && "shadow-[inset_3px_0_0_var(--state-warning)]",
               isActive && "z-[15] outline outline-2 -outline-offset-2 outline-oxblood",
               editingKey === c.key && c.type === "date" && "overflow-visible",
             )}
           >
+            <span aria-hidden className={cn("pointer-events-none absolute inset-0", tint, c.type === "formula" && "bg-sunken/40", c.key === notesKey && notes.text && "bg-warning/[0.07]")} />
             {editingKey === c.key && editor && INLINE_TYPES.has(c.type) && editor(c)}
-            <div className="flex min-w-0 items-center gap-1">
+            <div className="relative flex min-w-0 items-center gap-1">
               <div className={cn("min-w-0 flex-1 truncate", c.type === "ref" && "flex justify-center")}><CellView c={c} value={v} row={row} idx={idx} isOpen={isOpen} /></div>
               {isName && (
                 <span className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center rounded-full bg-canvas/95 opacity-0 shadow-sm group-hover:opacity-100">
