@@ -20,8 +20,8 @@ const NewsItemSchema = z.object({
 });
 
 const NewsResultSchema = z.object({
-  articles: z.array(NewsItemSchema),
-  notes: z.string(),
+  articles: z.array(NewsItemSchema).catch([]),
+  notes: z.string().catch(""),
 });
 
 const SYSTEM = `You are News Intelligence for Nishaan-a OS. ${NISHAANA_CONTEXT}
