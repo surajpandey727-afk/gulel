@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/neo/button";
-import { Modal } from "@/components/neo/controls";
+import { Modal, Tip } from "@/components/neo/controls";
 import { cn } from "@/components/neo/cn";
 import { createClient } from "@/lib/supabase/client";
 import { SHEETS } from "@/lib/central/schema";
@@ -551,70 +551,74 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
           <button type="button" onClick={toggleFull} className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs text-ink-2 neo-raised-sm hover:text-oxblood"><Minimize2 className="h-3.5 w-3.5" aria-hidden />Exit full screen<span className="text-ink-3">Esc</span></button>
         </div>
       )}
-      {/* toolbar */}
+      {/* toolbar: view | create & search | shape the table | history & actions */}
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View" className="inline-flex h-8 items-center rounded-full neo-inset-sm p-0.5">
-          <button type="button" aria-pressed={view.mode !== "kanban"} onClick={() => patchView({ mode: "table" })} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs", view.mode !== "kanban" ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:text-ink")}><Table2 className="h-3.5 w-3.5" aria-hidden />Table</button>
-          <button type="button" aria-pressed={view.mode === "kanban"} disabled={!kanbanCol} onClick={() => patchView({ mode: "kanban", ...(groupCol ? {} : { groupBy: kanbanCol?.key ?? null }) })} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs disabled:opacity-40", view.mode === "kanban" ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:text-ink")}><KanbanSquare className="h-3.5 w-3.5" aria-hidden />Kanban</button>
+        <div role="group" aria-label="View" className="inline-flex h-9 items-center gap-0.5 rounded-full neo-inset-sm p-1">
+          <ToolIcon label="Table view" active={view.mode !== "kanban"} onClick={() => patchView({ mode: "table" })}><Table2 className="h-4 w-4" /></ToolIcon>
+          <ToolIcon label={kanbanCol ? `Kanban view (cards by ${displayHeader(def, kanbanCol)})` : "Kanban needs a dropdown column"} active={view.mode === "kanban"} disabled={!kanbanCol} onClick={() => patchView({ mode: "kanban", ...(groupCol ? {} : { groupBy: kanbanCol?.key ?? null }) })}><KanbanSquare className="h-4 w-4" /></ToolIcon>
         </div>
         {canWrite && <Button variant="primary" size="sm" onClick={() => void addRow()}><Plus className="h-3.5 w-3.5" aria-hidden />New item</Button>}
-        <label className="flex h-8 min-w-0 flex-1 basis-48 items-center gap-2 rounded-full neo-inset-sm px-3 sm:max-w-72">
+        <label className="flex h-9 min-w-0 flex-1 basis-40 items-center gap-2 rounded-full neo-inset-sm px-3 sm:max-w-64">
           <Search className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${def.name.replace(/_/g, " ")}`} aria-label="Search rows" className="w-full min-w-0 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
           {q && <button type="button" onClick={() => setQ("")} aria-label="Clear search"><X className="h-3.5 w-3.5 text-ink-3" /></button>}
         </label>
-        <FilterMenu def={def} idx={idx} refCols={refCols} view={view} patchView={patchView} count={activeFilters} issues={totalIssues} />
-        {notesCount > 0 && (
-          <button type="button" onClick={() => patchView({ notesOnly: !view.notesOnly })} aria-pressed={!!view.notesOnly} title="Only rows that carry notes"
-            className={cn("inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-shadow", view.notesOnly ? "neo-inset-sm text-warning" : "neo-raised-sm text-ink-2 hover:text-ink")}>
-            <StickyNote className="h-3.5 w-3.5 text-warning" aria-hidden />With notes<span className="tabular text-ink-3">{notesCount}</span>
-          </button>
-        )}
-        {hasArchive && (
-          <button type="button" onClick={() => patchView({ showArchived: !view.showArchived })} aria-pressed={!!view.showArchived}
-            className={cn("inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-shadow", view.showArchived ? "neo-inset-sm text-ink" : "neo-raised-sm text-ink-2 hover:text-ink")}>
-            <Archive className="h-3.5 w-3.5" aria-hidden />{view.showArchived ? "Showing archived" : "Archived"}<span className="tabular text-ink-3">{archivedCount}</span>
-          </button>
-        )}
-        <ToolMenu icon={Layers} label={groupCol ? `Group: ${displayHeader(def, groupCol)}` : "Group"}>
-          {(close) => (
-            <MenuList>
-              <MenuItem active={!view.groupBy} onClick={() => { patchView({ groupBy: null }); close(); }}>No grouping</MenuItem>
-              {def.columns.filter((c) => c.type === "ref" || c.type === "choice" || c.type === "entity").map((c) => (
-                <MenuItem key={c.key} active={view.groupBy === c.key} onClick={() => { patchView({ groupBy: c.key, collapsed: [] }); close(); }}>{displayHeader(def, c)}</MenuItem>
-              ))}
-            </MenuList>
+        <div role="group" aria-label="Filter and arrange" className="inline-flex h-9 items-center gap-0.5 rounded-full neo-inset-sm p-1">
+          <FilterMenu def={def} idx={idx} refCols={refCols} view={view} patchView={patchView} count={activeFilters} issues={totalIssues} />
+          {notesCount > 0 && (
+            <ToolIcon label={view.notesOnly ? "Showing only rows with notes. Click to show all" : `Only rows with notes (${notesCount})`} active={!!view.notesOnly} onClick={() => patchView({ notesOnly: !view.notesOnly })} badge={view.notesOnly ? notesCount : undefined} tone="warning">
+              <StickyNote className="h-4 w-4" />
+            </ToolIcon>
           )}
-        </ToolMenu>
-        <ToolMenu icon={Lock} label={`Freeze ${frozenCount}`}>
-          {(close) => (
-            <MenuList>
-              {[0, 1, 2, 3, 4, 5].map((n) => <MenuItem key={n} active={frozenCount === n} onClick={() => { patchView({ frozen: n }); close(); }}>{n === 0 ? "No frozen columns" : `Freeze first ${n} column${n > 1 ? "s" : ""}`}{columns[n - 1] ? <span className="ml-auto pl-3 text-ink-3">to {displayHeader(def, columns[n - 1])}</span> : null}</MenuItem>)}
-            </MenuList>
+          {hasArchive && (
+            <ToolIcon label={view.showArchived ? "Hide archived rows" : `Show archived rows (${archivedCount})`} active={!!view.showArchived} onClick={() => patchView({ showArchived: !view.showArchived })} badge={view.showArchived ? archivedCount : undefined}>
+              <Archive className="h-4 w-4" />
+            </ToolIcon>
           )}
-        </ToolMenu>
-        <ToolMenu icon={Columns3} label="Columns">
-          {() => (
-            <div className="max-h-80 overflow-y-auto p-1.5">
-              <label className="flex items-center gap-2 rounded-neo-sm px-2.5 py-1.5 text-xs font-medium text-ink"><input type="checkbox" checked={view.showLookups} onChange={(e) => patchView({ showLookups: e.target.checked })} className="accent-[var(--brand-oxblood)]" />Show lookup &amp; ID columns</label>
-              <div className="my-1 border-t border-hairline" />
-              {def.columns.filter((c) => c.key !== "row_check" && (view.showLookups || !isLookupCol(def, c))).map((c) => (
-                <label key={c.key} className="flex items-center gap-2 rounded-neo-sm px-2.5 py-1 text-xs text-ink-2 hover:bg-sunken/60">
-                  <input type="checkbox" checked={!view.hidden.includes(c.key)} onChange={(e) => patchView({ hidden: e.target.checked ? view.hidden.filter((h) => h !== c.key) : [...view.hidden, c.key] })} className="accent-[var(--brand-oxblood)]" />
-                  {displayHeader(def, c)}{c.type === "formula" && <span className="ml-auto text-ink-3">calculated</span>}
-                </label>
-              ))}
-              <div className="my-1 border-t border-hairline" />
-              <button type="button" onClick={() => patchView({ ...defaultView(def), groupBy: view.groupBy })} className="w-full rounded-neo-sm px-2.5 py-1.5 text-left text-xs text-oxblood hover:bg-sunken/60">Reset widths, columns &amp; freeze</button>
-            </div>
-          )}
-        </ToolMenu>
-        <div className="ml-auto flex items-center gap-1.5">
-          <IconBtn label="Undo (Ctrl+Z)" onClick={() => void undo()}><Undo2 className="h-3.5 w-3.5" /></IconBtn>
-          <IconBtn label="Redo (Ctrl+Y)" onClick={() => void redo()}><Redo2 className="h-3.5 w-3.5" /></IconBtn>
-          <IconBtn label="Export CSV" onClick={exportCsv}><Download className="h-3.5 w-3.5" /></IconBtn>
-          <IconBtn label="Deleted rows" onClick={() => void openTrash()}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
-          <IconBtn label={full ? "Exit full screen (Esc)" : "Full screen"} onClick={toggleFull}>{full ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</IconBtn>
+          <span className="mx-0.5 h-4 w-px bg-hairline" aria-hidden />
+          <ToolMenu icon={Layers} iconOnly label={groupCol ? `Grouped by ${displayHeader(def, groupCol)}` : "Group rows"} highlight={!!groupCol}>
+            {(close) => (
+              <MenuList>
+                <MenuItem active={!view.groupBy} onClick={() => { patchView({ groupBy: null }); close(); }}>No grouping</MenuItem>
+                {def.columns.filter((c) => c.type === "ref" || c.type === "choice" || c.type === "entity").map((c) => (
+                  <MenuItem key={c.key} active={view.groupBy === c.key} onClick={() => { patchView({ groupBy: c.key, collapsed: [] }); close(); }}>{displayHeader(def, c)}</MenuItem>
+                ))}
+              </MenuList>
+            )}
+          </ToolMenu>
+          <ToolMenu icon={Lock} iconOnly label={frozenCount ? `First ${frozenCount} column${frozenCount > 1 ? "s" : ""} frozen` : "Freeze columns"} badge={frozenCount || undefined}>
+            {(close) => (
+              <MenuList>
+                {[0, 1, 2, 3, 4, 5].map((n) => <MenuItem key={n} active={frozenCount === n} onClick={() => { patchView({ frozen: n }); close(); }}>{n === 0 ? "No frozen columns" : `Freeze first ${n} column${n > 1 ? "s" : ""}`}{columns[n - 1] ? <span className="ml-auto pl-3 text-ink-3">to {displayHeader(def, columns[n - 1])}</span> : null}</MenuItem>)}
+              </MenuList>
+            )}
+          </ToolMenu>
+          <ToolMenu icon={Columns3} iconOnly label={view.hidden.length ? `Columns (${view.hidden.length} hidden)` : "Show or hide columns"} highlight={view.hidden.length > 0}>
+            {() => (
+              <div className="max-h-80 overflow-y-auto p-1.5">
+                <label className="flex items-center gap-2 rounded-neo-sm px-2.5 py-1.5 text-xs font-medium text-ink"><input type="checkbox" checked={view.showLookups} onChange={(e) => patchView({ showLookups: e.target.checked })} className="accent-[var(--brand-oxblood)]" />Show lookup &amp; ID columns</label>
+                <div className="my-1 border-t border-hairline" />
+                {def.columns.filter((c) => c.key !== "row_check" && (view.showLookups || !isLookupCol(def, c))).map((c) => (
+                  <label key={c.key} className="flex items-center gap-2 rounded-neo-sm px-2.5 py-1 text-xs text-ink-2 hover:bg-sunken/60">
+                    <input type="checkbox" checked={!view.hidden.includes(c.key)} onChange={(e) => patchView({ hidden: e.target.checked ? view.hidden.filter((h) => h !== c.key) : [...view.hidden, c.key] })} className="accent-[var(--brand-oxblood)]" />
+                    {displayHeader(def, c)}{c.type === "formula" && <span className="ml-auto text-ink-3">calculated</span>}
+                  </label>
+                ))}
+                <div className="my-1 border-t border-hairline" />
+                <button type="button" onClick={() => patchView({ ...defaultView(def), groupBy: view.groupBy })} className="w-full rounded-neo-sm px-2.5 py-1.5 text-left text-xs text-oxblood hover:bg-sunken/60">Reset widths, columns &amp; freeze</button>
+              </div>
+            )}
+          </ToolMenu>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <div role="group" aria-label="History and export" className="inline-flex h-9 items-center gap-0.5 rounded-full neo-inset-sm p-1">
+            <ToolIcon label="Undo (Ctrl+Z)" onClick={() => void undo()}><Undo2 className="h-4 w-4" /></ToolIcon>
+            <ToolIcon label="Redo (Ctrl+Y)" onClick={() => void redo()}><Redo2 className="h-4 w-4" /></ToolIcon>
+            <span className="mx-0.5 h-4 w-px bg-hairline" aria-hidden />
+            <ToolIcon label={selected.size ? `Export ${selected.size} selected row${selected.size > 1 ? "s" : ""} as CSV` : "Export visible rows as CSV"} onClick={exportCsv}><Download className="h-4 w-4" /></ToolIcon>
+            <ToolIcon label="Deleted rows (restore)" onClick={() => void openTrash()}><Trash2 className="h-4 w-4" /></ToolIcon>
+            <ToolIcon label={full ? "Exit full screen (Esc)" : "Full screen"} active={full} onClick={toggleFull}>{full ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</ToolIcon>
+          </div>
           {canWrite && <Button size="sm" onClick={() => setMunshi(true)}><Sparkles className="h-3.5 w-3.5 text-oxblood" aria-hidden />Ask Munshi</Button>}
         </div>
       </div>
@@ -1132,7 +1136,7 @@ export function relTime(iso: string) {
 
 function FilterMenu({ def, idx, refCols, view, patchView, count, issues }: { def: SheetDef; idx: ReturnType<typeof buildIndex>; refCols: ColumnDef[]; view: View; patchView: (p: Partial<View>) => void; count: number; issues: number }) {
   return (
-    <ToolMenu icon={Filter} label={count ? `Filter · ${count}` : "Filter"} highlight={count > 0}>
+    <ToolMenu icon={Filter} iconOnly label={count ? `${count} filter${count > 1 ? "s" : ""} on` : "Filter rows"} highlight={count > 0} badge={count || undefined}>
       {() => (
         <div className="max-h-96 w-full overflow-y-auto p-2">
           <label className="flex items-center gap-2 rounded-neo-sm px-2 py-1.5 text-xs text-ink"><input type="checkbox" checked={view.issuesOnly} onChange={(e) => patchView({ issuesOnly: e.target.checked })} className="accent-[var(--brand-oxblood)]" />Only rows with data issues ({issues})</label>
@@ -1197,16 +1201,43 @@ function ColorGrid({ onPick, current }: { onPick: (c: PaletteKey | null) => void
   );
 }
 
-function ToolMenu({ icon: Icon, label, children, highlight, small }: { icon: React.ComponentType<{ className?: string }>; label: string; children: (close: () => void) => React.ReactNode; highlight?: boolean; small?: boolean }) {
+function ToolMenu({ icon: Icon, label, children, highlight, small, iconOnly, badge }: { icon: React.ComponentType<{ className?: string }>; label: string; children: (close: () => void) => React.ReactNode; highlight?: boolean; small?: boolean; iconOnly?: boolean; badge?: number }) {
   const [el, setEl] = useState<HTMLElement | null>(null);
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => setEl(el ? null : e.currentTarget);
   return (
     <>
-      <button type="button" onClick={(e) => setEl(el ? null : e.currentTarget)} aria-expanded={!!el}
-        className={cn(small ? "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-ink-2 hover:bg-sunken/70" : "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs neo-raised-sm hover:shadow-[var(--raise-md)]", highlight ? "text-oxblood" : "text-ink-2")}>
-        <Icon className="h-3.5 w-3.5" />{label}
-      </button>
+      {iconOnly ? (
+        <ToolIcon label={label} onClick={toggle} active={!!el || highlight} badge={badge} expanded={!!el}><Icon className="h-4 w-4" /></ToolIcon>
+      ) : (
+        <button type="button" onClick={toggle} aria-expanded={!!el}
+          className={cn(small ? "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-ink-2 hover:bg-sunken/70" : "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs neo-raised-sm hover:shadow-[var(--raise-md)]", highlight ? "text-oxblood" : "text-ink-2")}>
+          <Icon className="h-3.5 w-3.5" />{label}
+        </button>
+      )}
       {el && <Floating anchor={el} onClose={() => setEl(null)} width={small ? 220 : 260}>{children(() => setEl(null))}</Floating>}
     </>
+  );
+}
+
+/** Icon-only toolbar button inside a grouped cluster; the name shows as a tooltip. */
+function ToolIcon({ label, onClick, children, active, disabled, badge, tone, expanded }: {
+  label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; children: React.ReactNode; active?: boolean; disabled?: boolean; badge?: number; tone?: "warning"; expanded?: boolean;
+}) {
+  return (
+    <Tip content={label}>
+      <button
+        type="button" onClick={onClick} disabled={disabled} aria-label={label} aria-pressed={expanded === undefined ? active : undefined} aria-expanded={expanded}
+        className={cn(
+          "relative grid h-7 w-7 shrink-0 place-items-center rounded-full transition-all duration-150 disabled:opacity-35",
+          active ? cn("neo-raised-sm", tone === "warning" ? "text-warning" : "text-oxblood") : cn("hover:bg-raised/80", tone === "warning" ? "text-warning hover:text-warning" : "text-ink-2 hover:text-oxblood"),
+        )}
+      >
+        {children}
+        {badge !== undefined && (
+          <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent-fill px-1 text-[0.5625rem] font-semibold tabular text-ivory" aria-hidden>{badge}</span>
+        )}
+      </button>
+    </Tip>
   );
 }
 
@@ -1219,8 +1250,5 @@ function MenuItem({ children, onClick, active, danger }: { children: React.React
       {children}{active && <Check className="ml-auto h-3.5 w-3.5" aria-hidden />}
     </button>
   );
-}
-function IconBtn({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} title={label} aria-label={label} className="grid h-8 w-8 place-items-center rounded-full text-ink-2 neo-raised-sm hover:text-oxblood hover:shadow-[var(--raise-md)]">{children}</button>;
 }
 
