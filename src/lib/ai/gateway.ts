@@ -235,11 +235,43 @@ export async function runStructured<S extends z.ZodType>(opts: RunOptions<S>): P
     }
     const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
     let json: unknown;
-    try { json = tools ? extractJson(text) : JSON.parse(text); if (opts.preprocess) json = opts.preprocess(json); } catch {
+    let parsed: ReturnType<typeof opts.schema.safeParse> | null = null;
+    try {
+      json = tools ? extractJson(text) : JSON.parse(text);
+      if (opts.preprocess) json = opts.preprocess(json);
+      parsed = opts.schema.safeParse(json);
+    } catch { parsed = null; }
+    if (tools && (!parsed || !parsed.success)) {
+      // Web research answers can't use structured outputs, so the JSON is sometimes malformed or cut short.
+      // Re-format the research already gathered (with its sources) through a structured-output call — no new research.
+      const research = allContent.flatMap((b) => {
+        if (b.type !== "text") return [];
+        const cites = ((b as unknown as { citations?: Array<{ url?: string; title?: string }> }).citations ?? []).filter((c) => c.url).map((c) => ` [source: ${c.url}]`).join("");
+        return [b.text + cites];
+      }).join(" ").slice(-60000);
+      try {
+        const fix = await agent.client.messages.stream({
+          model: agent.model, max_tokens: opts.maxTokens ?? 16000, system,
+          messages: [{ role: "user", content: `${opts.input}
+
+<research_notes>
+${research}
+</research_notes>
+
+Return the answer as JSON matching the schema, using only facts and source URLs present in the research notes above.` }],
+          output_config: { effort: agent.effort, format: zodOutputFormat(opts.schema) },
+        }).finalMessage();
+        usage.input += fix.usage.input_tokens ?? 0; usage.output += fix.usage.output_tokens ?? 0;
+        let j2: unknown = JSON.parse(fix.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""));
+        if (opts.preprocess) j2 = opts.preprocess(j2);
+        parsed = opts.schema.safeParse(j2);
+        base.input_tokens = usage.input; base.output_tokens = usage.output; base.cost_usd = estimateCostUsd(agent.model, usage);
+      } catch { /* fall through to the error below */ }
+    }
+    if (!parsed) {
       await finish({ ...base, status: "invalid_output", error: "Output was not valid JSON" });
       throw new GatewayError("invalid_output", "AI output was not valid JSON and was not saved.");
     }
-    const parsed = opts.schema.safeParse(json);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
       await finish({ ...base, status: "invalid_output", error: redact(issues).slice(0, 2000) });
