@@ -13,6 +13,7 @@ import { addContact, createOrganisation } from "@/lib/orgs/service";
 import { discoverPeople } from "@/lib/discovery/people-discovery";
 import { enrichOrganisationNews } from "@/lib/discovery/news";
 import { enqueueJob } from "@/lib/jobs/enqueue";
+import { normaliseCompanyName, normaliseLinkedIn } from "@/lib/import/normalise";
 import { findOrgLinkedIn } from "@/lib/central/enrich";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
@@ -96,7 +97,12 @@ async function runLinkedInLookup(j: Job) {
   const url = j.payload.linkedin_url as string;
   const userId = (j.payload.user_id as string | null) ?? "system";
   const data = await lookupLinkedInOrg(j.workspace_id, userId, url);
-  const orgId = await createOrganisation(j.workspace_id, userId, {
+  // Reuse the organisation if gulel already has it (same LinkedIn page, or same name) — never create a duplicate.
+  const liNorm = normaliseLinkedIn(data.linkedin_url || url);
+  const { data: byLi } = liNorm ? await admin.from("contact_channels").select("organisation_id").eq("workspace_id", j.workspace_id).eq("channel", "linkedin").eq("value", liNorm).is("contact_id", null).not("organisation_id", "is", null).limit(1).maybeSingle() : { data: null };
+  const { data: byName } = byLi ? { data: null } : await admin.from("organisations").select("id").eq("workspace_id", j.workspace_id).eq("normalised_name", normaliseCompanyName(data.trading_name)).is("deleted_at", null).order("cr_key", { ascending: true, nullsFirst: false }).limit(1).maybeSingle();
+  const existingId = (byLi?.organisation_id as string | undefined) ?? (byName?.id as string | undefined);
+  const orgId = existingId ?? await createOrganisation(j.workspace_id, userId, {
     trading_name: data.trading_name,
     legal_name: data.legal_name,
     website: data.website,
