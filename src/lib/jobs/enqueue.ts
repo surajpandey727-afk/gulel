@@ -29,12 +29,11 @@ export async function enqueueJob(
 
 /** Hits the tick endpoint so jobs run without waiting for the cron. */
 export async function kickTick() {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL;
+  // In production use the platform's own production domain (always reachable, never a stale or local URL).
+  const base = (process.env.VERCEL_ENV === "production" && process.env.VERCEL_PROJECT_PRODUCTION_URL) || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
   const secret = process.env.JOBS_SECRET;
   if (!base || !secret) return;
   const url = base.startsWith("http") ? base : `https://${base}`;
-  await fetch(`${url}/api/jobs/tick`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${secret}` },
-  }).catch(() => {});
+  // Don't wait for the whole drain (minutes): the target invocation runs on its own once the request is accepted.
+  await fetch(`${url}/api/jobs/tick`, { method: "POST", headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(8000) }).catch(() => {});
 }

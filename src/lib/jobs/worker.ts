@@ -12,7 +12,7 @@ import { lookupLinkedInOrg } from "@/lib/discovery/linkedin-lookup";
 import { addContact, createOrganisation } from "@/lib/orgs/service";
 import { discoverPeople } from "@/lib/discovery/people-discovery";
 import { enrichOrganisationNews } from "@/lib/discovery/news";
-import { enqueueJob, kickTick } from "@/lib/jobs/enqueue";
+import { enqueueJob } from "@/lib/jobs/enqueue";
 import { findOrgLinkedIn } from "@/lib/central/enrich";
 
 type Job = { id: string; workspace_id: string; type: string; payload: Record<string, unknown>; attempts: number; correlation_id: string };
@@ -88,12 +88,7 @@ export async function tick(worker = "web") {
     }
   }
 
-  // If we processed jobs and there may be more, chain another tick
-  if (results.length > 0) {
-    kickTick().catch(() => {});
-  }
-
-  return results;
+  return results; // the tick route keeps draining and hands over to a fresh invocation when needed
 }
 
 async function runLinkedInLookup(j: Job) {

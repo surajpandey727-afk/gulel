@@ -1,6 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { tick } from "@/lib/jobs/worker";
+import { kickTick } from "@/lib/jobs/enqueue";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncNow } from "@/lib/central/sync";
 
@@ -35,10 +36,27 @@ async function syncCentral() {
   return out;
 }
 
+/**
+ * Work through the queue for most of this invocation's time budget, then, if work remains, hand over to a fresh
+ * invocation via after() (which the platform keeps alive), so long queues drain without a scheduler.
+ */
+async function drain() {
+  const started = Date.now();
+  const results: Awaited<ReturnType<typeof tick>> = [];
+  let last = 0;
+  do {
+    const r = await tick("cron");
+    results.push(...r);
+    last = r.length;
+  } while (last > 0 && Date.now() - started < 150_000);
+  if (last > 0) after(() => kickTick());
+  return results;
+}
+
 /** Called by pg_cron (pg_net) or any scheduler with `Authorization: Bearer $JOBS_SECRET`. */
 export async function POST(req: NextRequest) {
   if (!checkSecret(req)) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-  const results = await tick("cron");
+  const results = await drain();
   const central = await syncCentral().catch(() => []);
   return NextResponse.json({ processed: results.length, results, central });
 }
@@ -46,7 +64,7 @@ export async function POST(req: NextRequest) {
 /** Called by Vercel Cron with `Authorization: Bearer $CRON_SECRET`. */
 export async function GET(req: NextRequest) {
   if (!checkSecret(req) && !checkCronSecret(req)) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-  const results = await tick("cron");
+  const results = await drain();
   const central = await syncCentral().catch(() => []);
   return NextResponse.json({ processed: results.length, results, central });
 }

@@ -9,6 +9,8 @@ import { buildIndex, computeRow, entityName, rowIssues } from "@/lib/central/com
 import { SHEETS } from "@/lib/central/schema";
 import { loadStore } from "@/lib/central/store";
 import { PALETTE, labelColor } from "@/components/central/palette";
+import { after } from "next/server";
+import { kickTick } from "@/lib/jobs/enqueue";
 import { repositoryProgress } from "@/lib/central/enrich";
 import { QualifyPanel } from "./qualify-panel";
 
@@ -66,6 +68,7 @@ export default async function CentralDashboard() {
 
   const repoOrgs = rows("Organisations").filter((r) => String(r.data.archived ?? "").toUpperCase() !== "Y").length;
   const progress = { total: repoOrgs, ...(await repositoryProgress(s.workspaceId)) };
+  if (progress.queued) after(() => kickTick()); // opening the dashboard nudges the background worker if work is waiting
   const issues = SHEETS.map((d) => ({ sheet: d.name, n: rows(d.name).filter((r) => rowIssues(idx, r).length).length })).filter((x) => x.n);
   const stages = idx.refList.get("Stage") ?? [];
   const pstages = idx.refList.get("PStage") ?? [];
