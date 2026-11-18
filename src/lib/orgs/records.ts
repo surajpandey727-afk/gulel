@@ -319,9 +319,13 @@ export async function mergeOrgs(workspaceId: string, keepId: string, dropIds: st
     if (error) throw new Error(error.message);
     for (const [k, v] of Object.entries((data ?? {}) as Record<string, number>)) moved[k] = (moved[k] ?? 0) + v;
   }
-  // If the kept record inherited a repository ID, make the board row carry the kept name.
-  const { data: keep } = await admin.from("organisations").select("trading_name, cr_key").eq("id", keepId).single();
+  // If the kept record is on the board, the board row gets its name plus any website / LinkedIn it gained from the merge.
+  const { data: keep } = await admin.from("organisations").select("trading_name, cr_key, website").eq("id", keepId).single();
   let linked = false;
-  if (keep?.cr_key) { const r = await pushOrgToCentral(workspaceId, keepId, { trading_name: keep.trading_name }, userId); linked = r.linked; }
+  if (keep?.cr_key) {
+    const { data: li } = await admin.from("contact_channels").select("value").eq("organisation_id", keepId).eq("channel", "linkedin").is("contact_id", null).limit(1).maybeSingle();
+    const r = await pushOrgToCentral(workspaceId, keepId, { trading_name: keep.trading_name, ...(keep.website ? { website: keep.website } : {}), ...(li?.value ? { linkedin_url: li.value as string } : {}) }, userId, admin, "ui", "Merged duplicates in gulel");
+    linked = r.linked;
+  }
   return { moved, linked };
 }
