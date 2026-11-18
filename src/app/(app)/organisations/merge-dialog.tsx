@@ -35,12 +35,15 @@ export function MergeDialog({ groups, onClose }: { groups: DupGroup[]; onClose: 
   const [i, setI] = useState(0);
   const [changed, setChanged] = useState(false);
   const g = groups[i];
-  const [keep, setKeep] = useState(g?.orgs[0]?.id ?? "");
-  const [drop, setDrop] = useState<Set<string>>(new Set(g?.orgs.slice(1).map((o) => o.id)));
+  const [choice, setChoice] = useState<{ group: number; keep: string; drop: Set<string> } | null>(null);
   const [pending, start] = useTransition();
-  useEffect(() => { if (!g) return; setKeep(g.orgs[0].id); setDrop(new Set(g.orgs.slice(1).map((o) => o.id))); }, [g]);
   if (!g) return null;
-  const k = g.orgs.find((o) => o.id === keep)!;
+  // Selection belongs to the group on screen; moving to the next group starts from its suggestion.
+  const current = choice && choice.group === i && g.orgs.some((o) => o.id === choice.keep) ? choice : { group: i, keep: g.orgs[0].id, drop: new Set(g.orgs.slice(1).map((o) => o.id)) };
+  const keep = current.keep, drop = current.drop;
+  const setKeep = (id: string) => setChoice({ group: i, keep: id, drop: new Set(g.orgs.filter((x) => x.id !== id).map((x) => x.id)) });
+  const setDrop = (fn: (s: Set<string>) => Set<string>) => setChoice({ group: i, keep, drop: fn(drop) });
+  const k = g.orgs.find((o) => o.id === keep) ?? g.orgs[0];
   const drops = g.orgs.filter((o) => o.id !== keep && drop.has(o.id));
   const clash = k.crKey && drops.find((o) => o.crKey);
   const go = () => start(async () => {
@@ -65,7 +68,7 @@ export function MergeDialog({ groups, onClose }: { groups: DupGroup[]; onClose: 
           return (
             <div key={o.id} className={cn("flex items-start gap-3 rounded-neo px-3.5 py-3", isKeep ? "neo-raised-sm ring-1 ring-oxblood/30" : "neo-inset-sm")}>
               <label className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] font-medium text-ink-2">
-                <input type="radio" name="keep" checked={isKeep} onChange={() => { setKeep(o.id); setDrop(new Set(g.orgs.filter((x) => x.id !== o.id).map((x) => x.id))); }} className="accent-[var(--brand-oxblood)]" />Keep
+                <input type="radio" name="keep" checked={isKeep} onChange={() => setKeep(o.id)} className="accent-[var(--brand-oxblood)]" />Keep
               </label>
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
