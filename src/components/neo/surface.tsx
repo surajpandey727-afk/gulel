@@ -35,7 +35,7 @@ export function Panel({
   return (
     <Surface className={cn("flex min-w-0 flex-col", className)} aria-labelledby={id ? `${id}-title` : undefined}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-3 px-5 pt-4">
+        <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-5 pt-4">
           <div className="min-w-0">
             {eyebrow && <p className="eyebrow mb-1">{eyebrow}</p>}
             {title && (
@@ -44,7 +44,7 @@ export function Panel({
               </h2>
             )}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          {actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       <div className={cn("flex-1 px-5 pb-5 pt-3", bodyClassName)}>{children}</div>

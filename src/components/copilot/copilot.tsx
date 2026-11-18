@@ -99,7 +99,7 @@ export function Copilot() {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} aria-label="Ask Sutradhar"
-        className="fixed bottom-24 right-5 z-50 grid h-14 w-14 place-items-center rounded-full neo-accent transition-transform hover:-translate-y-0.5 lg:bottom-20">
+        className="fixed bottom-[9rem] right-5 z-50 grid h-14 w-14 place-items-center rounded-full neo-accent transition-transform hover:-translate-y-0.5 lg:bottom-20">
         <Sparkles className="h-5 w-5" />
       </button>
       <Drawer open={open} onOpenChange={setOpen} title="Sutradhar">

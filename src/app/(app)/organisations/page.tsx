@@ -118,11 +118,11 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
             </Link>
           ))}
         </nav>
-        <nav aria-label="Sort organisations" className="flex items-center gap-1 rounded-full neo-inset-sm p-1">
+        <nav aria-label="Sort organisations" className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full neo-inset-sm p-1 [scrollbar-width:none]">
           <span className="pl-2 pr-1 text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">Sort</span>
           {SORTS.map((s) => (
             <Link key={s.value} href={href({ sort: s.value === prefs.orgSort ? null : s.value })} aria-current={sort === s.value ? "true" : undefined}
-              className={cn("rounded-full px-3 py-1 text-xs font-medium transition-shadow", sort === s.value ? "neo-raised-sm text-ink" : "text-ink-3 hover:text-ink")}>{s.label}</Link>
+              className={cn("shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-shadow", sort === s.value ? "neo-raised-sm text-ink" : "text-ink-3 hover:text-ink")}>{s.label}</Link>
           ))}
         </nav>
         <span className="text-xs text-ink-3">{rows.length} shown{sort === "priority" && view === "active" && session.role !== "viewer" ? " · drag to reprioritise" : ""}</span>

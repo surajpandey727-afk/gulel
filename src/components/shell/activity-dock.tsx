@@ -130,7 +130,7 @@ export function ActivityDock({ workspaceId }: { workspaceId: string }) {
   const toggleJob = (id: string) => setExpandedJob((prev) => (prev === id ? null : id));
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 lg:bottom-6 lg:right-6" style={{ maxHeight: "calc(100dvh - 8rem)" }}>
+    <div className="fixed bottom-[5.25rem] right-4 z-40 flex flex-col items-end gap-2 lg:bottom-6 lg:right-6" style={{ maxHeight: "calc(100dvh - 8rem)" }}>
       <AnimatePresence>
         {expanded && (
           <motion.div

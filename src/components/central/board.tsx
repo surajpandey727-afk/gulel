@@ -672,7 +672,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
             )}
           </ToolMenu>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
           <SavedViews sheet={sheet} view={view} activeId={activeViewId} canWrite={canWrite} onApply={applyView} onReset={() => applyView(null, null)}
             density={prefs.boardDensity} onDensity={(d) => setPrefs({ boardDensity: d }, { quiet: true })} />
           <div role="group" aria-label="History and export" className="inline-flex h-9 items-center gap-0.5 rounded-full neo-inset-sm p-1">

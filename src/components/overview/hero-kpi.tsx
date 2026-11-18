@@ -21,8 +21,8 @@ export function HeroKpi({ label, value, delta, className, numeric }: { label: st
       transition={{ duration: 0.4, ease: [0.33, 1, 0.68, 1] }}
       whileHover={{ y: -2, transition: { duration: 0.2 } }}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-[0.76rem] font-medium text-ink-3">{label}</span>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <span className="whitespace-nowrap text-[0.76rem] font-medium text-ink-3">{label}</span>
         {delta && (
           <motion.span
             className={cn("inline-flex items-center gap-1 text-[0.72rem] font-semibold", delta.direction === "up" ? "text-positive" : delta.direction === "down" ? "text-danger" : "text-ink-3")}
