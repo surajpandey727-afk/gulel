@@ -195,6 +195,8 @@ export async function researchSection(workspaceId: string, userId: string | null
     } else {
       if (!it.source_url || !seen.has(normaliseUrlForCompare(it.source_url))) { dropped++; continue; }
       sourceUrl = normaliseUrl(it.source_url) ?? it.source_url;
+      // Name the publication when the model didn't: its domain, never a generic "Web source".
+      if (!it.source_name.trim() || /^web( source)?$/i.test(it.source_name.trim())) { try { sourceName = new URL(sourceUrl).hostname.replace(/^www\./, ""); } catch { /* keep */ } }
     }
     const key = norm(it.claim);
     const metric = section === "financials" ? it.field.split(".")[1] : null;

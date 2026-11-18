@@ -58,6 +58,8 @@ export function OrgNotes({ organisationId, contactId, initial, canWrite = true, 
 
   const active = useMemo(() => notes.filter((n) => !n.archived_at), [notes]);
   const archived = useMemo(() => notes.filter((n) => n.archived_at), [notes]);
+  // Restoring the last archived note returns to the active list (the switch disappears with nothing archived).
+  useEffect(() => { if (showArchived && archived.length === 0) setShowArchived(false); }, [showArchived, archived.length]);
   const shown = showArchived ? archived : active;
 
   const add = () => start(async () => {
@@ -86,6 +88,7 @@ export function OrgNotes({ organisationId, contactId, initial, canWrite = true, 
     const r = await archiveNoteAction(id, on);
     if (!r.ok) return void toast.error(r.error);
     setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, archived_at: on ? new Date().toISOString() : null } : n)));
+    if (!on) setShowArchived(false);
     toast.success(r.message, on ? { action: { label: "Undo", onClick: () => archive(id, false) } } : undefined);
     refreshSoon(router);
   });
