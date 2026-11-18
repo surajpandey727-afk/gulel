@@ -168,7 +168,8 @@ function EditorSurface({ initial, onChange, placeholder, autoFocus, onSubmit, la
       const inList = state.insertUnorderedList || state.insertOrderedList;
       if (inList || !e.shiftKey) { e.preventDefault(); exec(e.shiftKey ? "outdent" : "indent", undefined, !inList); }
     }
-    e.stopPropagation();
+    // Typing must not trigger page shortcuts (the board's grid keys), but Esc still reaches the window to close it.
+    if (e.key !== "Escape") e.stopPropagation();
   };
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
