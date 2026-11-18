@@ -22,7 +22,7 @@ import { OrgNotes } from "@/components/orgs/org-notes";
 import { OrgFiles } from "@/components/orgs/org-files";
 import { listFiles, listNotes, repoNotesFor } from "@/lib/orgs/records";
 import { AddToCentralButton, ArchiveOrgButton, DeleteOrgButton } from "./record-actions";
-import { SectionResearch } from "./section-research";
+import { ResearchCoverage, SectionResearch } from "./section-research";
 import { latestRuns } from "@/lib/research/section";
 import { richToText } from "@/lib/notes/rich";
 import { AddContactButton, AddEvidenceButton, FindPeopleButton, OverrideButton, PrepareOutreachButton, RediscoverButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
@@ -214,6 +214,11 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
               {(risks ?? []).length ? <RiskReview organisationId={id} flags={(risks ?? []).map((r) => ({ id: r.id, kind: r.kind, severity: r.severity, summary: r.summary, status: r.status, evidence: r.evidence_id ? evById.get(r.evidence_id)?.source_name ?? null : null }))} />
                 : <EmptyState title="No flags" body="A missing record is never treated as an adverse finding." />}
               <div className="mt-4 flex flex-wrap gap-2"><SuppressButton kind="organisation" value={id} label="Mark do-not-contact" path={`/organisations/${id}`} /></div>
+            </Panel>
+
+            <Panel title="Research coverage" eyebrow="Fill gaps one section at a time" className={cur ? "xl:col-span-3" : "xl:col-span-2"}>
+              <ResearchCoverage organisationId={id} runs={runs} canWrite={canWrite}
+                counts={{ financials: (financials ?? []).length + byGroup("financials.").filter((e) => !(financials ?? []).some((f) => f.evidence_id === e.id)).length, brand: byGroup("brand.").length, commercial: byGroup("commercial.").length, signals: byGroup("signal.").length }} />
             </Panel>
 
             <Panel title="Corporate identity" eyebrow="Identity" className="xl:col-span-3">

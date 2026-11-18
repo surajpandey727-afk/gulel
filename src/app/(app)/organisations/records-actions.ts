@@ -8,6 +8,8 @@ import { applyOps, loadStore } from "@/lib/central/store";
 import { orderedRows } from "@/lib/central/order";
 import { autoPush } from "@/lib/central/sync";
 import { repoNotesFor, type RepoNote } from "@/lib/orgs/records";
+import { findDuplicates, mergeOrgs, type DupGroup } from "@/lib/orgs/records";
+import { notifyMentions, workspaceMembers, type Member } from "@/lib/notify/mentions";
 import { addNote, archiveNote, createUpload, deleteFile, deleteNote, editNote, fileUrl, listFiles, listNotes, orgDependents, purgeOrg, recordFile, resolveOrg, setArchived, setDeleted, type FileRow, type NoteRow, type OrgDependents } from "@/lib/orgs/records";
 
 type R<T = undefined> = { ok: true; data: T; message?: string } | { ok: false; error: string };
@@ -30,14 +32,60 @@ export async function addNoteAction(input: { organisationId?: string | null; con
   try {
     const s = await writer();
     const db = await createClient();
-    await addNote(db, s.workspaceId, { ...input, via: "ui", userId: s.userId });
+    const noteId = await addNote(db, s.workspaceId, { ...input, via: "ui", userId: s.userId });
+    after(async () => { const t = await noteTarget(input.organisationId, input.contactId); await notifyMentions({ workspaceId: s.workspaceId, actorId: s.userId, body: input.body, where: t.where, link: t.link, noteId }); });
     refresh(input.organisationId);
     return { ok: true, data: await listNotes(db, s.workspaceId, { orgIds: input.organisationId ? [input.organisationId] : [], contactId: input.contactId ?? undefined }), message: "Note added" };
   } catch (e) { return fail(e); }
 }
 
 export async function editNoteAction(id: string, body: string): Promise<R> {
-  try { const s = await writer(); await editNote(await createClient(), s.workspaceId, id, body); refresh(); return { ok: true, data: undefined, message: "Note saved" }; } catch (e) { return fail(e); }
+  try {
+    const s = await writer();
+    const db = await createClient();
+    const { data: before } = await db.from("notes").select("body, organisation_id, contact_id").eq("id", id).eq("workspace_id", s.workspaceId).maybeSingle();
+    await editNote(db, s.workspaceId, id, body);
+    if (before) after(async () => { const t = await noteTarget(before.organisation_id, before.contact_id); await notifyMentions({ workspaceId: s.workspaceId, actorId: s.userId, body, before: before.body, where: t.where, link: t.link, noteId: id }); });
+    refresh();
+    return { ok: true, data: undefined, message: "Note saved" };
+  } catch (e) { return fail(e); }
+}
+
+/** Where a note lives, for the mention notification's wording and link. */
+async function noteTarget(orgId?: string | null, contactId?: string | null) {
+  const db = await createClient();
+  if (orgId) { const { data } = await db.from("organisations").select("trading_name").eq("id", orgId).maybeSingle(); return { where: data?.trading_name ?? "an organisation", link: `/organisations/${orgId}#notes` }; }
+  const { data } = await db.from("contacts").select("full_name").eq("id", contactId ?? "").maybeSingle();
+  return { where: data?.full_name ?? "a person", link: `/people/${contactId}` };
+}
+
+/** Teammates for the @ picker in notes. */
+export async function membersAction(): Promise<R<Member[]>> {
+  try { const s = await getSession(); return { ok: true, data: await workspaceMembers(s.workspaceId) }; } catch (e) { return fail(e); }
+}
+
+// ---------------------------------------------------------------- notifications (mentions)
+export interface NotificationRow { id: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string }
+export async function notificationsAction(): Promise<R<{ items: NotificationRow[]; unread: number }>> {
+  try {
+    const s = await getSession();
+    const db = await createClient();
+    const [{ data }, { count }] = await Promise.all([
+      db.from("notifications").select("id, title, body, link, read_at, created_at").eq("workspace_id", s.workspaceId).eq("user_id", s.userId).order("created_at", { ascending: false }).limit(30),
+      db.from("notifications").select("id", { count: "exact", head: true }).eq("workspace_id", s.workspaceId).eq("user_id", s.userId).is("read_at", null),
+    ]);
+    return { ok: true, data: { items: (data ?? []) as NotificationRow[], unread: count ?? 0 } };
+  } catch (e) { return fail(e); }
+}
+export async function markNotificationsReadAction(ids: string[] | "all"): Promise<R> {
+  try {
+    const s = await getSession();
+    let q = (await createClient()).from("notifications").update({ read_at: new Date().toISOString() }).eq("workspace_id", s.workspaceId).eq("user_id", s.userId).is("read_at", null);
+    if (ids !== "all") q = q.in("id", ids.slice(0, 100));
+    const { error } = await q;
+    if (error) throw new Error(error.message);
+    return { ok: true, data: undefined };
+  } catch (e) { return fail(e); }
 }
 
 export async function archiveNoteAction(id: string, archived: boolean): Promise<R> {
@@ -150,6 +198,25 @@ export async function placeOrgAction(orgId: string, afterId: string | null, befo
     after(() => autoPush(s.workspaceId, s.userId));
     revalidatePath("/organisations"); revalidatePath("/central", "layout");
     return { ok: true, data: undefined };
+  } catch (e) { return fail(e); }
+}
+
+export async function duplicatesAction(): Promise<R<DupGroup[]>> {
+  try { const s = await getSession(); return { ok: true, data: await findDuplicates(await createClient(), s.workspaceId) }; } catch (e) { return fail(e); }
+}
+
+export async function mergeOrgsAction(keepId: string, dropIds: string[]): Promise<R<Record<string, number>>> {
+  try {
+    const s = await writer();
+    if (!dropIds.length) throw new Error("Pick at least one organisation to merge in.");
+    const db = await createClient();
+    const { data } = await db.from("organisations").select("id").eq("workspace_id", s.workspaceId).in("id", [keepId, ...dropIds]);
+    if ((data ?? []).length !== new Set([keepId, ...dropIds]).size) throw new Error("Organisation not found.");
+    const r = await mergeOrgs(s.workspaceId, keepId, dropIds, s.userId);
+    if (r.linked) after(() => autoPush(s.workspaceId, s.userId));
+    refresh(keepId); revalidatePath("/central", "layout");
+    const total = Object.values(r.moved).reduce((a, b) => a + b, 0);
+    return { ok: true, data: r.moved, message: `Merged ${dropIds.length} into one record; ${total} linked item${total === 1 ? "" : "s"} moved` };
   } catch (e) { return fail(e); }
 }
 

@@ -2,14 +2,17 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/components/neo/cn";
+import { usePrefs } from "@/components/shell/prefs-provider";
 
 const TabCtx = createContext<{ active: string; set: (v: string) => void }>({ active: "summary", set: () => {} });
 
 export function useTab() { return useContext(TabCtx); }
 
 /** Dossier tabs. The open tab lives in the URL hash (#financials), so a refresh, a shared link or Back returns to it. */
-export function DossierShell({ defaultTab, children }: { defaultTab: string; children: ReactNode }) {
-  const [active, setActive] = useState(defaultTab);
+export function DossierShell({ defaultTab: fallback, children }: { defaultTab: string; children: ReactNode }) {
+  // Your preferred opening tab (Settings > Preferences), unless the link names one.
+  const defaultTab = usePrefs().prefs.dossierTab ?? fallback;
+  const [active, setActive] = useState<string>(defaultTab);
   useEffect(() => {
     const read = () => { const h = window.location.hash.slice(1); if (h && document.querySelector(`[data-dossier-panel="${CSS.escape(h)}"]`)) setActive(h); };
     read();

@@ -1,5 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { notifyMentions } from "@/lib/notify/mentions";
 import { getSession } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { createUpload, deleteFile, fileUrl, listFiles, recordFile, resolveOrg, updateFileMeta, type FileRow } from "@/lib/orgs/records";
@@ -53,7 +55,17 @@ export async function finishDocUploadAction(orgId: string, path: string, name: s
 }
 
 export async function updateDocAction(fileId: string, patch: { tags?: string[]; notes?: string | null }): Promise<R> {
-  try { const s = await writer(); await updateFileMeta(await createClient(), s.workspaceId, fileId, patch); return { ok: true, data: undefined, message: "Saved" }; } catch (e) { return fail(e); }
+  try {
+    const s = await writer();
+    const db = await createClient();
+    const { data: before } = await db.from("organisation_files").select("name, notes, organisation_id, organisations(trading_name)").eq("id", fileId).eq("workspace_id", s.workspaceId).maybeSingle();
+    await updateFileMeta(db, s.workspaceId, fileId, patch);
+    if (before && patch.notes) {
+      const org = (before.organisations as unknown as { trading_name: string } | null)?.trading_name ?? "an organisation";
+      after(() => notifyMentions({ workspaceId: s.workspaceId, actorId: s.userId, body: patch.notes!, before: before.notes, where: `${org} (document “${before.name}”)`, link: `/organisations/${before.organisation_id}#files` }));
+    }
+    return { ok: true, data: undefined, message: "Saved" };
+  } catch (e) { return fail(e); }
 }
 
 export async function docUrlAction(fileId: string, download = false): Promise<R<string>> {

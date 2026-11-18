@@ -7,6 +7,7 @@ import { cn } from "@/components/neo/cn";
 import { GulelMark } from "@/components/brand/gulel-mark";
 import { BOARDS, MOBILE_NAV, NAV, NAV_GROUPS, OVERVIEW, type NavGroup, type NavItem } from "./nav";
 import { SearchTrigger } from "./command-palette";
+import { NotificationsBell } from "./notifications-bell";
 import { useTheme } from "./theme-provider";
 
 /** Boards lives under /central but has its own top-level entry, so it must not also light up the Central Repository group. */
@@ -94,7 +95,7 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
         </span>
       </Link>
 
-      <div className="mb-3"><SearchTrigger /></div>
+      <div className="mb-3 flex flex-col gap-1"><SearchTrigger /><NotificationsBell /></div>
 
       <TopLink item={OVERVIEW} path={path} />
       <TopLink item={BOARDS} path={path} />

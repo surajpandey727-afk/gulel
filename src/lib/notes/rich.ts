@@ -86,6 +86,8 @@ export function sanitizeRich(html: string): string {
       const href = (a.href ?? "").trim();
       if (!/^(https?:\/\/|mailto:)/i.test(href)) continue; // drop the tag, keep its text
       attr = ` href="${escAttr(href)}" target="_blank" rel="noopener noreferrer nofollow"`;
+    } else if (name === "span" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(a["data-mention"] ?? "")) {
+      attr = ` data-mention="${a["data-mention"].toLowerCase()}"`; // @mention of a teammate
     } else if (STYLED.has(name)) {
       const style = cleanStyle(a.style ?? "", fontColor);
       if (style) attr = ` style="${escAttr(style)}"`;

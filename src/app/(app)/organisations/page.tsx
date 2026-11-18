@@ -16,6 +16,8 @@ import { NewOrganisationButton } from "./new-organisation";
 import { BulkDiscoverButton } from "./bulk-discover";
 import { EnrichAllButton } from "./enrich-all";
 import { OrgTable, type OrgListRow } from "./org-table";
+import { loadPrefs } from "@/lib/prefs-server";
+import { DuplicatesButton } from "./merge-dialog";
 
 export const metadata = { title: "Organisations" };
 
@@ -32,8 +34,9 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
   const f = await resolveFilters(Promise.resolve(sp));
   const q = typeof sp.q === "string" ? sp.q.trim() : "";
   const view = sp.view === "archived" || sp.view === "deleted" ? sp.view : "active";
-  const sort: Sort = SORTS.some((s) => s.value === sp.sort) ? (sp.sort as Sort) : "priority";
   const session = await getSession();
+  const prefs = await loadPrefs(session.userId);
+  const sort: Sort = SORTS.some((s) => s.value === sp.sort) ? (sp.sort as Sort) : prefs.orgSort;
   const supabase = await createClient();
   const ws = session.workspaceId;
 
@@ -103,7 +106,7 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
   return (
     <>
       <AnimatedPageHeader title="Organisations" description="One canonical record per company, with a profile per market."
-        actions={<><GlobalFilters showRange={false} /><EnrichAllButton /><BulkDiscoverButton /><NewOrganisationButton /></>} />
+        actions={<><GlobalFilters showRange={false} />{session.role !== "viewer" && <DuplicatesButton />}<EnrichAllButton /><BulkDiscoverButton /><NewOrganisationButton /></>} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchBox placeholder="Search organisations…" />
         <nav aria-label="Organisation status" className="flex items-center gap-1 rounded-full neo-inset-sm p-1">
@@ -118,7 +121,7 @@ export default async function OrganisationsPage({ searchParams }: { searchParams
         <nav aria-label="Sort organisations" className="flex items-center gap-1 rounded-full neo-inset-sm p-1">
           <span className="pl-2 pr-1 text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">Sort</span>
           {SORTS.map((s) => (
-            <Link key={s.value} href={href({ sort: s.value === "priority" ? null : s.value })} aria-current={sort === s.value ? "true" : undefined}
+            <Link key={s.value} href={href({ sort: s.value === prefs.orgSort ? null : s.value })} aria-current={sort === s.value ? "true" : undefined}
               className={cn("rounded-full px-3 py-1 text-xs font-medium transition-shadow", sort === s.value ? "neo-raised-sm text-ink" : "text-ink-3 hover:text-ink")}>{s.label}</Link>
           ))}
         </nav>

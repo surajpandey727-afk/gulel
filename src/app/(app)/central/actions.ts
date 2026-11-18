@@ -290,3 +290,42 @@ export async function linkRepositoryAction(): Promise<Result<{ created: number; 
     return { ok: false, error: (e as Error).message };
   }
 }
+
+// ---------------------------------------------------------------- saved board views
+export interface SavedView { id: string; sheet: string; name: string; view: Record<string, unknown>; shared: boolean; mine: boolean; updated_at: string }
+
+/** Views for a sheet: yours plus the ones teammates shared. */
+export async function listViewsAction(sheet: string): Promise<Result<SavedView[]>> {
+  try {
+    const s = await getSession();
+    const db = await createClient();
+    const { data, error } = await db.from("cr_saved_views").select("id, sheet, name, view, shared, created_by, updated_at").eq("workspace_id", s.workspaceId).eq("sheet", sheet).order("name");
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: (data ?? []).map((v) => ({ id: v.id, sheet: v.sheet, name: v.name, view: v.view as Record<string, unknown>, shared: v.shared, mine: v.created_by === s.userId, updated_at: v.updated_at })) };
+  } catch (e) { return fail(e); }
+}
+
+export async function saveViewAction(input: { id?: string; sheet: string; name: string; view: Record<string, unknown>; shared: boolean }): Promise<Result<SavedView>> {
+  try {
+    const s = await getSession();
+    const name = input.name.trim().slice(0, 60);
+    if (!name) return { ok: false, error: "Give the view a name." };
+    if (JSON.stringify(input.view).length > 50_000) return { ok: false, error: "This view is too large to save." };
+    const db = await createClient();
+    const row = { workspace_id: s.workspaceId, sheet: input.sheet, name, view: input.view, shared: !!input.shared, created_by: s.userId, updated_at: new Date().toISOString() };
+    const q = input.id ? db.from("cr_saved_views").update(row).eq("id", input.id).eq("created_by", s.userId) : db.from("cr_saved_views").insert(row);
+    const { data, error } = await q.select("id, sheet, name, view, shared, updated_at").single();
+    if (error) return { ok: false, error: input.id ? "Only the person who saved a view can change it. Save it as a new view instead." : error.message };
+    return { ok: true, data: { ...data, view: data.view as Record<string, unknown>, mine: true } };
+  } catch (e) { return fail(e); }
+}
+
+export async function deleteViewAction(id: string): Promise<Result> {
+  try {
+    const s = await getSession();
+    const { error, count } = await (await createClient()).from("cr_saved_views").delete({ count: "exact" }).eq("id", id).eq("created_by", s.userId);
+    if (error) return { ok: false, error: error.message };
+    if (!count) return { ok: false, error: "Only the person who saved a view can delete it." };
+    return { ok: true, data: undefined };
+  } catch (e) { return fail(e); }
+}

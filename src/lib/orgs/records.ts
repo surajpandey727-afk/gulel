@@ -263,3 +263,65 @@ export async function purgeOrg(workspaceId: string, orgId: string, userId: strin
     metadata: { name: org.trading_name, cr_key: org.cr_key, removed: { notes: deps.notes, files: deps.files, evidence: deps.evidence, qualifications: deps.qualifications }, kept: { contacts: deps.contacts, drafts: deps.drafts, conversations: deps.conversations } },
   });
 }
+
+// ---------------------------------------------------------------- duplicates and merging
+export interface DupOrg { id: string; name: string; market: string | null; crKey: string | null; domain: string | null; contacts: number; notes: number; files: number; evidence: number; score: number | null; archived: boolean }
+export interface DupGroup { reason: string; orgs: DupOrg[] }
+
+const STOP = new Set(["the", "and", "co", "company", "group", "studio", "studios", "india", "uk", "ltd", "limited", "pvt", "private", "llp", "inc"]);
+const core = (n: string) => n.toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w && !STOP.has(w)).join(" ");
+
+/** Possible duplicates among live organisations: same name, same website domain, or one name being the start of the other. */
+export async function findDuplicates(db: Db, workspaceId: string): Promise<DupGroup[]> {
+  const { data } = await db.from("organisations")
+    .select("id, trading_name, normalised_name, primary_domain, primary_market, cr_key, archived_at, contact_organisations(count), notes(count), organisation_files(count), evidence_items(count), lead_qualifications(score, override_score, is_current)")
+    .eq("workspace_id", workspaceId).is("deleted_at", null).is("notes.deleted_at", null).is("organisation_files.deleted_at", null).limit(2000);
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const n = (x: unknown) => (x as Array<{ count: number }> | null)?.[0]?.count ?? 0;
+  const orgs: (DupOrg & { core: string })[] = rows.map((o) => {
+    const q = (o.lead_qualifications as Array<{ score: number; override_score: number | null; is_current: boolean }>).find((x) => x.is_current);
+    return {
+      id: o.id as string, name: o.trading_name as string, market: o.primary_market as string | null, crKey: o.cr_key as string | null, domain: o.primary_domain as string | null,
+      contacts: n(o.contact_organisations), notes: n(o.notes), files: n(o.organisation_files), evidence: n(o.evidence_items),
+      score: q ? Math.round(Number(q.override_score ?? q.score)) : null, archived: !!o.archived_at, core: core(String(o.normalised_name ?? o.trading_name)),
+    };
+  });
+  // Union-find over the three matching rules; the reason records the strongest one.
+  const parent = new Map(orgs.map((o) => [o.id, o.id]));
+  const reason = new Map<string, string>();
+  const find = (x: string): string => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x)!)), parent.get(x)!));
+  const join = (a: string, b: string, why: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(rb, ra); if (!reason.has(find(a))) reason.set(find(a), why); };
+  const by = (key: (o: DupOrg & { core: string }) => string | null, why: string) => {
+    const m = new Map<string, string>();
+    for (const o of orgs) { const k = key(o); if (!k) continue; if (m.has(k)) join(m.get(k)!, o.id, why); else m.set(k, o.id); }
+  };
+  by((o) => (o.core.length >= 3 ? o.core : null), "Same name");
+  by((o) => o.domain, "Same website");
+  const sorted = [...orgs].filter((o) => o.core.length >= 4).sort((a, b) => a.core.length - b.core.length);
+  for (let i = 0; i < sorted.length; i++) for (let j = i + 1; j < sorted.length; j++) {
+    if (sorted[j].core !== sorted[i].core && sorted[j].core.startsWith(`${sorted[i].core} `)) join(sorted[i].id, sorted[j].id, "Similar name");
+  }
+  const groups = new Map<string, DupOrg[]>();
+  for (const o of orgs) { const r = find(o.id); if (!groups.has(r)) groups.set(r, []); const { core: _c, ...rest } = o; void _c; groups.get(r)!.push(rest); }
+  return [...groups.entries()].filter(([, g]) => g.length > 1).map(([r, g]) => ({
+    reason: reason.get(r) ?? "Similar",
+    // Suggested keeper first: in the Central Repository, then the most attached.
+    orgs: g.sort((a, b) => Number(!!b.crKey) - Number(!!a.crKey) || (b.contacts + b.notes + b.files + b.evidence) - (a.contacts + a.notes + a.files + a.evidence)),
+  })).sort((a, b) => a.orgs[0].name.localeCompare(b.orgs[0].name));
+}
+
+/** Merge each of `dropIds` into `keepId` (everything attached moves; the duplicates are retired, not erased). */
+export async function mergeOrgs(workspaceId: string, keepId: string, dropIds: string[], userId: string | null) {
+  const admin = createAdminClient();
+  const moved: Record<string, number> = {};
+  for (const drop of [...new Set(dropIds)].filter((d) => d !== keepId)) {
+    const { data, error } = await admin.rpc("merge_organisations", { p_ws: workspaceId, p_keep: keepId, p_drop: drop, p_actor: userId });
+    if (error) throw new Error(error.message);
+    for (const [k, v] of Object.entries((data ?? {}) as Record<string, number>)) moved[k] = (moved[k] ?? 0) + v;
+  }
+  // If the kept record inherited a repository ID, make the board row carry the kept name.
+  const { data: keep } = await admin.from("organisations").select("trading_name, cr_key").eq("id", keepId).single();
+  let linked = false;
+  if (keep?.cr_key) { const r = await pushOrgToCentral(workspaceId, keepId, { trading_name: keep.trading_name }, userId); linked = r.linked; }
+  return { moved, linked };
+}

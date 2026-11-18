@@ -10,6 +10,8 @@ import { Badge } from "@/components/neo/badge";
 import { cn } from "@/components/neo/cn";
 import { RichEditor, RichView } from "@/components/notes/rich-editor";
 import { richToText } from "@/lib/notes/rich";
+import { NOTE_CLAMP } from "@/lib/prefs";
+import { usePrefs } from "@/components/shell/prefs-provider";
 import { addNoteAction, archiveNoteAction, deleteNoteAction, editNoteAction } from "@/app/(app)/organisations/records-actions";
 import type { NoteRow, RepoNote } from "@/lib/orgs/records";
 
@@ -37,6 +39,7 @@ export function OrgNotes({ organisationId, contactId, initial, canWrite = true, 
   const [confirm, setConfirm] = useState<{ id: string; kind: "delete" | "discard" } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [pending, start] = useTransition();
+  const { prefs } = usePrefs();
 
   // Restore an unsent draft once on mount.
   const restored = useRef(false);
@@ -105,7 +108,7 @@ export function OrgNotes({ organisationId, contactId, initial, canWrite = true, 
     <div className="flex flex-col gap-4">
       {canWrite && (
         <div className="flex flex-col gap-2">
-          <RichEditor key={composerKey} value={text} onChange={setText} onSubmit={add} label="New note" expandTitle="New note"
+          <RichEditor key={composerKey} value={text} onChange={setText} onSubmit={add} label="New note" expandTitle="New note" mentionable
             placeholder="Add a note: research, a call, what to do next…" minHeight={compact ? 72 : 96} compact={compact} />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-[0.6875rem] text-ink-3">Shown on this {contactId ? "person" : "organisation"} everywhere in gulel. Ctrl+Enter to save.{hasText(text) ? " Draft kept in this browser until you add it." : ""}</span>
@@ -174,7 +177,7 @@ export function OrgNotes({ organisationId, contactId, initial, canWrite = true, 
               </div>
               {editing?.id === n.id ? (
                 <div className="flex flex-col gap-2">
-                  <RichEditor value={editing.body} onChange={(v) => setEditing((e) => (e ? { ...e, body: v } : e))} autoFocus onSubmit={save} label="Edit note" expandTitle="Edit note" minHeight={120} />
+                  <RichEditor value={editing.body} onChange={(v) => setEditing((e) => (e ? { ...e, body: v } : e))} autoFocus onSubmit={save} label="Edit note" expandTitle="Edit note" mentionable minHeight={120} />
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {confirm?.id === n.id && confirm.kind === "discard" ? (
                       <>
@@ -192,7 +195,7 @@ export function OrgNotes({ organisationId, contactId, initial, canWrite = true, 
                   </div>
                 </div>
               ) : (
-                <RichView body={n.body} clampHeight={compact ? 220 : 420} title={`Note by ${n.author ?? "Team"} · ${when(n.created_at)}`} />
+                <RichView body={n.body} clampHeight={compact ? Math.min(220, NOTE_CLAMP[prefs.notePreview]) : NOTE_CLAMP[prefs.notePreview]} title={`Note by ${n.author ?? "Team"} · ${when(n.created_at)}`} />
               )}
             </li>
           ))}

@@ -1,13 +1,19 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import {
-  Baseline, Bold, Eraser, Heading2, Heading3, Highlighter, IndentDecrease, IndentIncrease, Italic, List, ListOrdered, Maximize2, Minimize2, Pilcrow, Redo2, Underline, Undo2, X,
+  AtSign, Baseline, Bold, Eraser, Heading2, Heading3, Highlighter, IndentDecrease, IndentIncrease, Italic, List, ListOrdered, Maximize2, Minimize2, Pilcrow, Redo2, Underline, Undo2, X,
 } from "lucide-react";
 import { cn } from "@/components/neo/cn";
 import { Tip } from "@/components/neo/controls";
 import { normaliseStyle, sanitizeRich, toSafeHtml } from "@/lib/notes/rich";
+import { membersAction } from "@/app/(app)/organisations/records-actions";
+
+type Member = { id: string; name: string; email: string | null };
+let membersCache: Promise<Member[]> | null = null;
+const loadMembers = () => (membersCache ??= membersAction().then((r) => (r.ok ? r.data : [])).catch(() => []));
 
 /** Text colours and highlights, all taken from the design system palette (dark mode remaps them in globals.css). */
 export const TEXT_COLOURS = [
@@ -26,8 +32,8 @@ type Cmd = "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrde
  * Tab), indent, undo/redo and clear formatting. It grows with its content up to `maxHeight`, then scrolls inside; Expand
  * opens the same note in a large reading/editing window. Output is sanitised HTML (see lib/notes/rich).
  */
-export function RichEditor({ value, onChange, placeholder = "Write a note…", autoFocus, onSubmit, label = "Note", minHeight = 120, maxHeight = "min(60vh, 560px)", expandTitle, compact, readOnly }: {
-  value: string; onChange: (html: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; label?: string;
+export function RichEditor({ value, onChange, placeholder = "Write a note…", autoFocus, onSubmit, label = "Note", minHeight = 120, maxHeight = "min(60vh, 560px)", expandTitle, compact, readOnly, mentionable }: {
+  value: string; onChange: (html: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; label?: string; /** Type @ to mention a teammate (they get notified). */ mentionable?: boolean;
   minHeight?: number; maxHeight?: string; expandTitle?: string; compact?: boolean; readOnly?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -37,7 +43,7 @@ export function RichEditor({ value, onChange, placeholder = "Write a note…", a
   return (
     <>
       {!expanded && (
-        <EditorSurface key={version} initial={latest.current} onChange={change} placeholder={placeholder} autoFocus={autoFocus} onSubmit={onSubmit} label={label}
+        <EditorSurface key={version} initial={latest.current} onChange={change} placeholder={placeholder} autoFocus={autoFocus} onSubmit={onSubmit} label={label} mentionable={mentionable}
           minHeight={minHeight} maxHeight={maxHeight} compact={compact} readOnly={readOnly} onExpand={() => setExpanded(true)} />
       )}
       {expanded && <div className="rounded-neo neo-inset-sm px-4 py-3 text-xs text-ink-3" style={{ minHeight }}>Editing in the expanded window…</div>}
@@ -54,7 +60,7 @@ export function RichEditor({ value, onChange, placeholder = "Write a note…", a
               </Tip>
             </div>
             <div className="min-h-0 flex-1 px-5 pb-5 pt-3">
-              <EditorSurface initial={latest.current} onChange={change} placeholder={placeholder} autoFocus onSubmit={onSubmit} label={label} minHeight={0} maxHeight="100%" fill readOnly={readOnly} />
+              <EditorSurface initial={latest.current} onChange={change} placeholder={placeholder} autoFocus onSubmit={onSubmit} label={label} minHeight={0} maxHeight="100%" fill readOnly={readOnly} mentionable={mentionable} />
             </div>
           </Dialog.Content>
         </Dialog.Portal>
@@ -63,9 +69,9 @@ export function RichEditor({ value, onChange, placeholder = "Write a note…", a
   );
 }
 
-function EditorSurface({ initial, onChange, placeholder, autoFocus, onSubmit, label, minHeight, maxHeight, onExpand, fill, compact, readOnly }: {
+function EditorSurface({ initial, onChange, placeholder, autoFocus, onSubmit, label, minHeight, maxHeight, onExpand, fill, compact, readOnly, mentionable }: {
   initial: string; onChange: (html: string) => void; placeholder: string; autoFocus?: boolean; onSubmit?: () => void; label: string;
-  minHeight: number; maxHeight: string; onExpand?: () => void; fill?: boolean; compact?: boolean; readOnly?: boolean;
+  minHeight: number; maxHeight: string; onExpand?: () => void; fill?: boolean; compact?: boolean; readOnly?: boolean; mentionable?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<Record<string, boolean>>({});
@@ -80,6 +86,7 @@ function EditorSurface({ initial, onChange, placeholder, autoFocus, onSubmit, la
       const sel = window.getSelection(); sel?.removeAllRanges(); sel?.addRange(r);
     }
     try { document.execCommand("defaultParagraphSeparator", false, "p"); } catch { /* older browsers */ }
+    el.querySelectorAll<HTMLElement>("[data-mention]").forEach((m) => m.setAttribute("contenteditable", "false"));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const emit = useCallback(() => {
@@ -115,7 +122,46 @@ function EditorSurface({ initial, onChange, placeholder, autoFocus, onSubmit, la
   const toggle = (c: Cmd) => exec(c);
   const heading = (tag: "p" | "h2" | "h3") => exec("formatBlock", block === tag && tag !== "p" ? "<p>" : `<${tag}>`);
 
+  /* ---------- @mentions */
+  const [members, setMembers] = useState<Member[]>([]);
+  const [mention, setMention] = useState<{ query: string; top: number; left: number; active: number } | null>(null);
+  useEffect(() => { if (mentionable) void loadMembers().then(setMembers); }, [mentionable]);
+  const matches = mention ? members.filter((m) => `${m.name} ${m.email ?? ""}`.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6) : [];
+  const detectMention = () => {
+    if (!mentionable) return;
+    const sel = window.getSelection();
+    const node = sel?.anchorNode;
+    if (!sel || !sel.isCollapsed || !node || node.nodeType !== Node.TEXT_NODE || !ref.current?.contains(node)) return setMention(null);
+    const before = (node.textContent ?? "").slice(0, sel.anchorOffset);
+    const m = /(?:^|[\s\u00a0(])@([\p{L}\p{N}._-]{0,30})$/u.exec(before);
+    if (!m) return setMention(null);
+    const range = sel.getRangeAt(0).cloneRange();
+    const rect = range.getBoundingClientRect().height ? range.getBoundingClientRect() : (node.parentElement ?? ref.current).getBoundingClientRect();
+    setMention((cur) => ({ query: m[1], top: rect.bottom + 6, left: Math.min(rect.left, window.innerWidth - 280), active: cur && cur.query === m[1] ? cur.active : 0 }));
+  };
+  const pick = (mem: Member) => {
+    const sel = window.getSelection();
+    const node = sel?.anchorNode;
+    if (!sel || !node || node.nodeType !== Node.TEXT_NODE || !mention) return;
+    const end = sel.anchorOffset, start = end - mention.query.length - 1;
+    const range = document.createRange();
+    range.setStart(node, Math.max(0, start)); range.setEnd(node, end); range.deleteContents();
+    const tag = document.createElement("span");
+    tag.setAttribute("data-mention", mem.id); tag.setAttribute("contenteditable", "false"); tag.textContent = `@${mem.name}`;
+    const space = document.createTextNode("\u00a0");
+    range.insertNode(space); range.insertNode(tag);
+    const after = document.createRange(); after.setStartAfter(space); after.collapse(true);
+    sel.removeAllRanges(); sel.addRange(after);
+    setMention(null);
+    emit();
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (mention && matches.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); setMention({ ...mention, active: (mention.active + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length }); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); e.stopPropagation(); pick(matches[mention.active] ?? matches[0]); return; }
+    }
+    if (mention && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setMention(null); return; }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && onSubmit) { e.preventDefault(); onSubmit(); return; }
     if (e.key === "Tab") {
       // Tab nests list items (and indents paragraphs); Shift+Tab outdents. Without a list, leave Tab for focus navigation.
@@ -156,15 +202,26 @@ function EditorSurface({ initial, onChange, placeholder, autoFocus, onSubmit, la
           <ToolBtn tip="Increase indent (Tab)" onClick={() => exec("indent", undefined, !(state.insertUnorderedList || state.insertOrderedList))}><IndentIncrease className="h-3.5 w-3.5" /></ToolBtn>
           <ToolSep />
           <ToolBtn tip="Clear formatting" onClick={() => { exec("removeFormat"); exec("formatBlock", "<p>"); }}><Eraser className="h-3.5 w-3.5" /></ToolBtn>
+          {mentionable && <><ToolSep /><ToolBtn tip="Mention a teammate (type @)" onClick={() => { ref.current?.focus(); document.execCommand("insertText", false, (window.getSelection()?.anchorOffset ? " " : "") + "@"); emit(); detectMention(); }}><AtSign className="h-3.5 w-3.5" /></ToolBtn></>}
           {onExpand && <span className="ml-auto"><ToolBtn tip="Expand: a larger window to read and edit" onClick={onExpand}><Maximize2 className="h-3.5 w-3.5" /></ToolBtn></span>}
         </div>
       )}
       <div
         ref={ref} role="textbox" aria-multiline aria-label={label} contentEditable={!readOnly} suppressContentEditableWarning data-placeholder={placeholder}
-        onInput={emit} onKeyDown={onKeyDown} onPaste={onPaste} onBlur={emit} onKeyUp={refresh} onMouseUp={refresh}
+        onInput={() => { emit(); detectMention(); }} onKeyDown={onKeyDown} onPaste={onPaste} onBlur={() => { emit(); setTimeout(() => setMention(null), 150); }} onKeyUp={refresh} onMouseUp={refresh}
         className={cn("rich-note rich-editor min-h-0 overflow-y-auto overscroll-contain", compact ? "px-3 py-2" : "px-4 py-3", fill && "flex-1")}
         style={{ minHeight, maxHeight: fill ? undefined : maxHeight }}
       />
+      {mention && typeof document !== "undefined" && createPortal(
+        <div role="listbox" aria-label="Mention a teammate" style={{ top: mention.top, left: mention.left }} className="fixed z-[80] w-64 rounded-neo bg-canvas p-1.5 neo-raised">
+          {matches.length ? matches.map((m, i) => (
+            <button key={m.id} type="button" role="option" aria-selected={i === mention.active} onMouseDown={(e) => { e.preventDefault(); pick(m); }}
+              className={cn("flex w-full flex-col rounded-neo-sm px-2.5 py-1.5 text-left", i === mention.active ? "bg-sunken/80" : "hover:bg-sunken/60")}>
+              <span className="text-xs font-medium text-ink">{m.name}</span>{m.email && <span className="truncate text-[0.6875rem] text-ink-3">{m.email}</span>}
+            </button>
+          )) : <p className="px-2.5 py-1.5 text-xs text-ink-3">{members.length ? "No teammate matches" : "Loading teammates…"}</p>}
+          <p className="border-t border-hairline px-2.5 pt-1.5 text-[0.625rem] text-ink-3">↑ ↓ to choose · Enter to mention · they get notified</p>
+        </div>, document.body)}
     </div>
   );
 }

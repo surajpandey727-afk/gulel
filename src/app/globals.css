@@ -225,3 +225,7 @@ body {
 [data-theme="dark"] .rich-note [style*="background-color: #5c7a4a40"] { background-color: #d9b48a33 !important; }
 [data-theme="dark"] .rich-note [style*="background-color: #7a102026"] { background-color: #e58a9433 !important; }
 [data-theme="dark"] .rich-note [style*="background-color: #a69c8f40"] { background-color: #8f867640 !important; }
+.rich-note [data-mention] { color: var(--chart-2); font-weight: 600; background: var(--brand-oxblood-soft); border-radius: 4px; padding: 0 .2em; white-space: nowrap; }
+/* Board row density (Preferences). */
+[role="grid"][data-density="compact"] tbody td { height: 1.875rem; }
+[role="grid"][data-density="compact"] tbody td > div.h-9 { height: 1.875rem; }

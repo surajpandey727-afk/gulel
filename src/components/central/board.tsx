@@ -29,6 +29,8 @@ import { RichView } from "@/components/notes/rich-editor";
 import { orgContextAction } from "@/app/(app)/organisations/records-actions";
 import type { NoteRow } from "@/lib/orgs/records";
 import { orderedRows, placeRow, priorityNumbers, rowBefore } from "@/lib/central/order";
+import { usePrefs } from "@/components/shell/prefs-provider";
+import { SavedViews } from "./saved-views";
 
 /* ---------------------------------------------------------------- view model */
 
@@ -141,17 +143,33 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
   const live = useMemo<Store>(() => ({ rows: store.rows.filter((r) => !r.deleted_at), refs: store.refs }), [store]);
   const idx = useMemo(() => buildIndex(live), [live]);
 
-  /* ---------- view prefs (per sheet, per browser) */
+  /* ---------- view (per sheet, saved to your profile so it follows you to any device) */
+  const { prefs, setPrefs } = usePrefs();
   const storageKey = `cr:view:${sheet}`;
-  const [view, setView] = useState<View>(() => defaultView(def));
+  const [view, setView] = useState<View>(() => ({ ...defaultView(def), ...(prefs.boardLayouts[sheet] as Partial<View> | undefined) }));
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const layouts = useRef(prefs.boardLayouts);
   useEffect(() => {
+    // Switching sheet: load that sheet's layout from your profile; layouts saved in this browser before are carried over.
+    const saved = layouts.current[sheet] as Partial<View> | undefined;
+    if (saved) { setView({ ...defaultView(def), ...saved }); setActiveViewId(null); return; }
     try { const raw = localStorage.getItem(storageKey); setView(raw ? { ...defaultView(def), ...JSON.parse(raw) } : defaultView(def)); } catch { setView(defaultView(def)); }
-  }, [storageKey, def]);
+    setActiveViewId(null);
+  }, [storageKey, def, sheet]);
+  useEffect(() => { layouts.current = prefs.boardLayouts; }, [prefs.boardLayouts]);
+  const persist = useCallback((next: View) => {
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* storage unavailable */ }
+    setPrefs({ boardLayouts: { ...layouts.current, [sheet]: next as unknown as Record<string, unknown> } }, { quiet: true });
+  }, [storageKey, sheet, setPrefs]);
   const patchView = useCallback((p: Partial<View>) => setView((v) => {
     const next = { ...v, ...p };
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+    queueMicrotask(() => persist(next));
     return next;
-  }), [storageKey]);
+  }), [persist]);
+  const applyView = useCallback((v: Partial<View> | null, id: string | null) => {
+    const next = { ...defaultView(def), ...(v ?? {}) };
+    setView(next); setActiveViewId(id); persist(next);
+  }, [def, persist]);
 
   /* ---------- columns */
   const columns = useMemo(() => def.columns.filter((c) => c.key !== "row_check" && !view.hidden.includes(c.key) && (view.showLookups || !isLookupCol(def, c))), [def, view.hidden, view.showLookups]);
@@ -399,9 +417,8 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
     document.body.style.overflow = full ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [full]);
-  const [showDash, setShowDash] = useState(true);
-  useEffect(() => { try { setShowDash(localStorage.getItem("cr:dashboard") !== "hidden"); } catch {} }, []);
-  const toggleDash = () => setShowDash((v) => { try { localStorage.setItem("cr:dashboard", v ? "hidden" : "shown"); } catch {} return !v; });
+  const showDash = prefs.boardDashboard;
+  const toggleDash = () => setPrefs({ boardDashboard: !showDash }, { quiet: true });
   const markets = useMemo(() => [marketSummary(idx, "IN"), marketSummary(idx, "GL")], [idx]);
   const [notesFor, setNotesFor] = useState<{ id: string; el: HTMLElement } | null>(null);
   const [docCounts, setDocCounts] = useState<Record<string, number>>(orgFiles);
@@ -656,6 +673,8 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
           </ToolMenu>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <SavedViews sheet={sheet} view={view} activeId={activeViewId} canWrite={canWrite} onApply={applyView} onReset={() => applyView(null, null)}
+            density={prefs.boardDensity} onDensity={(d) => setPrefs({ boardDensity: d }, { quiet: true })} />
           <div role="group" aria-label="History and export" className="inline-flex h-9 items-center gap-0.5 rounded-full neo-inset-sm p-1">
             <ToolIcon label="Undo (Ctrl+Z)" onClick={() => void undo()}><Undo2 className="h-4 w-4" /></ToolIcon>
             <ToolIcon label="Redo (Ctrl+Y)" onClick={() => void redo()}><Redo2 className="h-4 w-4" /></ToolIcon>
@@ -695,7 +714,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
       ) : (<>
       {/* grid */}
       <div
-        ref={gridRef} tabIndex={0} onKeyDown={onKeyDown} role="grid" aria-label={def.name} aria-rowcount={flatRows.length}
+        ref={gridRef} tabIndex={0} onKeyDown={onKeyDown} role="grid" data-density={prefs.boardDensity} aria-label={def.name} aria-rowcount={flatRows.length}
         className={cn("relative min-h-64 overflow-auto", full ? "max-h-[calc(100dvh-9.5rem)]" : "max-h-[calc(100dvh-17rem)]", " rounded-neo neo-raised outline-none focus-visible:ring-2 focus-visible:ring-oxblood/30")}
       >
         <table className="border-separate border-spacing-0 text-sm" style={{ width: tableWidth, tableLayout: "fixed" }}>

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { Archive, ArchiveRestore, ExternalLink, FileText, GripVertical, MoreHorizontal, RotateCcw, StickyNote, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, Combine, ExternalLink, FileText, GripVertical, MoreHorizontal, RotateCcw, StickyNote, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/components/neo/cn";
 import { Badge, MarketBadge } from "@/components/neo/badge";
@@ -13,6 +13,78 @@ import { refreshSoon } from "@/components/orgs/refresh";
 import { useRowDrag, type DropTarget } from "@/components/central/use-row-drag";
 import { bulkOrgAction, orgDependentsAction, placeOrgAction, purgeOrgAction, type OrgLifecycle } from "./records-actions";
 import type { OrgDependents } from "@/lib/orgs/records";
+import { MergeDialog } from "./merge-dialog";
+import { usePrefs } from "@/components/shell/prefs-provider";
+import { ORG_COLUMNS, DEFAULT_PREFS, type OrgColumn } from "@/lib/prefs";
+import * as Popover from "@radix-ui/react-popover";
+import { ArrowDown, ArrowUp, Columns3 } from "lucide-react";
+
+const RIGHT = new Set<OrgColumn>(["score", "coverage", "people"]);
+const CELL_CLS: Record<OrgColumn, string> = {
+  linkedin: "px-3", market: "px-3", sector: "max-w-40 truncate px-3 text-ink-2", score: "tabular px-3 text-right font-semibold text-ink",
+  band: "px-3 text-ink-2", coverage: "tabular px-3 text-right text-ink-2", people: "tabular px-3 text-right text-ink-2",
+  relationship: "px-3 capitalize text-ink-2", updated: "whitespace-nowrap px-3 text-xs text-ink-3",
+};
+function cell(k: OrgColumn, o: OrgListRow): React.ReactNode {
+  switch (k) {
+    case "linkedin": return o.linkedin ? <a href={o.linkedin} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-ink-2 hover:text-oxblood">Open<ExternalLink className="h-3 w-3" aria-hidden /></a> : <span className="text-xs text-ink-3">—</span>;
+    case "market": return <MarketBadge market={o.market} />;
+    case "sector": return o.sector ?? "—";
+    case "score": return o.score ?? "—";
+    case "band": return o.band ?? <span className="text-ink-3">Not qualified</span>;
+    case "coverage": return o.coverage !== null ? `${o.coverage}%` : "—";
+    case "people": return o.contacts;
+    case "relationship": return o.relationship.replace(/_/g, " ");
+    case "updated": return o.updated;
+  }
+}
+
+/** Show, hide and reorder the list's columns, and set row density. Saved to your profile and applied at once. */
+export function ColumnsMenu() {
+  const { prefs, setPrefs } = usePrefs();
+  const cols = prefs.orgColumns;
+  const hidden = ORG_COLUMNS.filter((c) => !cols.includes(c.key));
+  const move = (k: OrgColumn, d: -1 | 1) => { const i = cols.indexOf(k), j = i + d; if (j < 0 || j >= cols.length) return; const n = [...cols]; [n[i], n[j]] = [n[j], n[i]]; setPrefs({ orgColumns: n }, { quiet: true }); };
+  return (
+    <Popover.Root>
+      <Tip content="Columns and density">
+        <Popover.Trigger asChild>
+          <button type="button" aria-label="Columns and density" className="grid h-7 w-7 place-items-center rounded-full text-ink-3 hover:bg-sunken/70 hover:text-oxblood data-[state=open]:text-oxblood"><Columns3 className="h-4 w-4" /></button>
+        </Popover.Trigger>
+      </Tip>
+      <Popover.Portal>
+        <Popover.Content align="end" sideOffset={6} className="z-50 w-64 rounded-neo bg-canvas p-2 normal-case tracking-normal neo-raised">
+          <p className="px-2 pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">Columns · in order</p>
+          <ul className="flex flex-col">
+            {cols.map((k, i) => (
+              <li key={k} className="flex items-center gap-2 rounded-neo-sm px-2 py-1 text-xs text-ink hover:bg-sunken/60">
+                <input type="checkbox" checked disabled={cols.length === 1} onChange={() => setPrefs({ orgColumns: cols.filter((c) => c !== k) }, { quiet: true })} aria-label={`Hide ${k}`} className="accent-[var(--brand-oxblood)]" />
+                <span className="flex-1">{ORG_COLUMNS.find((c) => c.key === k)!.label}</span>
+                <button type="button" onClick={() => move(k, -1)} disabled={i === 0} aria-label="Move up" className="grid h-5 w-5 place-items-center rounded text-ink-3 hover:text-oxblood disabled:opacity-30"><ArrowUp className="h-3 w-3" /></button>
+                <button type="button" onClick={() => move(k, 1)} disabled={i === cols.length - 1} aria-label="Move down" className="grid h-5 w-5 place-items-center rounded text-ink-3 hover:text-oxblood disabled:opacity-30"><ArrowDown className="h-3 w-3" /></button>
+              </li>
+            ))}
+            {hidden.map((c) => (
+              <li key={c.key} className="flex items-center gap-2 rounded-neo-sm px-2 py-1 text-xs text-ink-3 hover:bg-sunken/60">
+                <input type="checkbox" checked={false} onChange={() => setPrefs({ orgColumns: [...cols, c.key] }, { quiet: true })} aria-label={`Show ${c.label}`} className="accent-[var(--brand-oxblood)]" />{c.label}
+              </li>
+            ))}
+          </ul>
+          <div className="my-1.5 border-t border-hairline" />
+          <p className="px-2 pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">Row density</p>
+          <div className="flex gap-1 px-1">
+            {(["comfortable", "compact"] as const).map((d) => (
+              <button key={d} type="button" onClick={() => setPrefs({ orgDensity: d }, { quiet: true })} className={cn("flex-1 rounded-full px-2 py-1 text-xs capitalize", prefs.orgDensity === d ? "neo-raised-sm font-medium text-oxblood" : "text-ink-2 hover:bg-sunken/60")}>{d}</button>
+            ))}
+          </div>
+          <div className="my-1.5 border-t border-hairline" />
+          <button type="button" onClick={() => setPrefs({ orgColumns: DEFAULT_PREFS.orgColumns, orgDensity: DEFAULT_PREFS.orgDensity }, { quiet: true })} className="w-full rounded-neo-sm px-2 py-1.5 text-left text-xs text-oxblood hover:bg-sunken/60">Reset columns</button>
+          <a href="/settings/preferences" className="block rounded-neo-sm px-2 py-1.5 text-xs text-ink-2 hover:bg-sunken/60">All preferences…</a>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 export interface OrgListRow {
   id: string; name: string; crKey: string | null; isDemo: boolean; market: string | null; sector: string | null;
@@ -35,6 +107,10 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
   useEffect(() => setSelected(new Set()), [view]);
   const [confirm, setConfirm] = useState<{ action: OrgLifecycle; ids: string[] } | null>(null);
   const [purge, setPurge] = useState<OrgListRow | null>(null);
+  const [merging, setMerging] = useState(false);
+  const { prefs } = usePrefs();
+  const cols = prefs.orgColumns;
+  const pad = prefs.orgDensity === "compact" ? "py-1.5" : "py-3";
   const tableRef = useRef<HTMLDivElement>(null);
   const [announce, setAnnounce] = useState("");
 
@@ -69,6 +145,7 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
           <span className="h-4 w-px bg-hairline" aria-hidden />
           {view === "active" && <Button size="sm" onClick={() => setConfirm({ action: "archive", ids })}><Archive className="h-3.5 w-3.5" aria-hidden />Archive</Button>}
           {view === "archived" && <Button size="sm" onClick={() => setConfirm({ action: "reinstate", ids })}><ArchiveRestore className="h-3.5 w-3.5" aria-hidden />Reinstate</Button>}
+          {view !== "deleted" && ids.length >= 2 && ids.length <= 6 && <Button size="sm" onClick={() => setMerging(true)}><Combine className="h-3.5 w-3.5" aria-hidden />Merge</Button>}
           {view !== "deleted" && <Button size="sm" variant="danger" onClick={() => setConfirm({ action: "delete", ids })}><Trash2 className="h-3.5 w-3.5" aria-hidden />Delete</Button>}
           {view === "deleted" && <Button size="sm" onClick={() => setConfirm({ action: "restore", ids })}><RotateCcw className="h-3.5 w-3.5" aria-hidden />Restore</Button>}
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto grid h-7 w-7 place-items-center rounded-full text-ink-3 hover:bg-sunken/70 hover:text-ink" aria-label="Clear selection"><X className="h-3.5 w-3.5" /></button>
@@ -83,10 +160,11 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
               <th className="w-14 px-2 py-2.5 text-left text-[0.7rem] font-medium uppercase tracking-[0.06em] text-ink-3">
                 <Tip content={reorderable ? "Priority: drag a row, or focus its grip and press the up or down arrow" : "Priority from the Central Repository. Sort by priority to reorder"}><span className="cursor-help">#</span></Tip>
               </th>
-              {["Organisation", "LinkedIn", "Market", "Sector", "Score", "Band", "Coverage", "People", "Relationship", "Updated"].map((h) => (
-                <th key={h} className={cn("whitespace-nowrap px-3 py-2.5 text-left text-[0.7rem] font-medium uppercase tracking-[0.06em] text-ink-3", ["Score", "Coverage", "People"].includes(h) && "text-right")}>{h}</th>
+              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[0.7rem] font-medium uppercase tracking-[0.06em] text-ink-3">Organisation</th>
+              {cols.map((k) => (
+                <th key={k} className={cn("whitespace-nowrap px-3 py-2.5 text-left text-[0.7rem] font-medium uppercase tracking-[0.06em] text-ink-3", RIGHT.has(k) && "text-right")}>{ORG_COLUMNS.find((c) => c.key === k)!.label}</th>
               ))}
-              <th className="w-10" aria-label="Actions" />
+              <th className="w-10 pr-2 text-right"><ColumnsMenu /></th>
             </tr>
           </thead>
           <tbody>
@@ -95,8 +173,8 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
               return (
                 <tr key={o.id} data-row-id={o.id} style={drag.rowStyle(o.id)} aria-selected={selected.has(o.id)}
                   className={cn("group border-t border-hairline/60 transition-colors hover:bg-raised/70", selected.has(o.id) && "bg-sunken/60", drag.dragging === o.id && "bg-raised")}>
-                  {canWrite && <td className="py-3 pl-4"><input type="checkbox" checked={selected.has(o.id)} onChange={(e) => toggle(o.id, e.target.checked)} aria-label={`Select ${o.name}`} className="accent-[var(--brand-oxblood)]" /></td>}
-                  <td className="px-2 py-3">
+                  {canWrite && <td className={cn(pad, "pl-4")}><input type="checkbox" checked={selected.has(o.id)} onChange={(e) => toggle(o.id, e.target.checked)} aria-label={`Select ${o.name}`} className="accent-[var(--brand-oxblood)]" /></td>}
+                  <td className={cn(pad, "px-2")}>
                     <span className="flex items-center gap-1">
                       {reorderable && canWrite && (
                         o.priority !== null ? (
@@ -111,7 +189,7 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
                         : <Tip content={o.crKey ? "Archived in the Central Repository" : "Not in the Central Repository yet, so no priority. Open it and add it to prioritise"}><span className="min-w-5 cursor-help text-right text-xs text-ink-3">–</span></Tip>}
                     </span>
                   </td>
-                  <td className="max-w-72 px-3 py-3">
+                  <td className={cn(pad, "max-w-72 px-3")}>
                     <span className="flex items-center gap-2">
                       <Link href={`/organisations/${o.id}`} className="truncate font-medium text-ink hover:text-oxblood">{o.name}</Link>
                       {o.isDemo && <Badge tone="muted" icon={false}>demo</Badge>}
@@ -120,15 +198,7 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
                       {o.files > 0 && <Tip content={`${o.files} document${o.files > 1 ? "s" : ""}`}><span className="inline-flex items-center gap-0.5 text-[0.6875rem] text-ink-3"><FileText className="h-3 w-3" aria-hidden />{o.files}</span></Tip>}
                     </span>
                   </td>
-                  <td className="px-3 py-3">{o.linkedin ? <a href={o.linkedin} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-ink-2 hover:text-oxblood">Open<ExternalLink className="h-3 w-3" aria-hidden /></a> : <span className="text-xs text-ink-3">—</span>}</td>
-                  <td className="px-3 py-3"><MarketBadge market={o.market} /></td>
-                  <td className="max-w-40 truncate px-3 py-3 text-ink-2">{o.sector ?? "—"}</td>
-                  <td className="tabular px-3 py-3 text-right font-semibold text-ink">{o.score ?? "—"}</td>
-                  <td className="px-3 py-3 text-ink-2">{o.band ?? <span className="text-ink-3">Not qualified</span>}</td>
-                  <td className="tabular px-3 py-3 text-right text-ink-2">{o.coverage !== null ? `${o.coverage}%` : "—"}</td>
-                  <td className="tabular px-3 py-3 text-right text-ink-2">{o.contacts}</td>
-                  <td className="px-3 py-3 capitalize text-ink-2">{o.relationship.replace(/_/g, " ")}</td>
-                  <td className="whitespace-nowrap px-3 py-3 text-xs text-ink-3">{o.updated}</td>
+                  {cols.map((k) => <td key={k} className={cn(pad, CELL_CLS[k])}>{cell(k, o)}</td>)}
                   <td className="pr-3">{canWrite && <RowMenu o={o} view={view} isOwner={isOwner} onAction={(action) => setConfirm({ action, ids: [o.id] })} onPurge={() => setPurge(o)} />}</td>
                 </tr>
               );
@@ -160,6 +230,14 @@ export function OrgTable({ rows: initial, view, reorderable, canWrite, isOwner }
       </ul>
 
       {confirm && <ConfirmLifecycle {...confirm} rows={rows} onClose={(changed) => { setConfirm(null); if (changed) { setSelected(new Set()); refreshSoon(router); } }} />}
+      {merging && (
+        <MergeDialog
+          groups={[{ reason: "Selected organisations", orgs: rows.filter((o) => selected.has(o.id))
+            .map((o) => ({ id: o.id, name: o.name, market: o.market, crKey: o.crKey, domain: null, contacts: o.contacts, notes: o.notes, files: o.files, evidence: 0, score: o.score, archived: view === "archived" }))
+            .sort((a, b) => Number(!!b.crKey) - Number(!!a.crKey) || (b.contacts + b.notes + b.files) - (a.contacts + a.notes + a.files)) }]}
+          onClose={(changed) => { setMerging(false); if (changed) setSelected(new Set()); }}
+        />
+      )}
       {purge && <PurgeDialog org={purge} onClose={(changed) => { setPurge(null); if (changed) refreshSoon(router); }} />}
     </>
   );

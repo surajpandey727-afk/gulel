@@ -348,7 +348,7 @@ function DocNotesPanel({ f, canWrite, open, onToggle, register, onSave }: {
         <div className="flex flex-col gap-2 px-4 pb-3">
           {canWrite ? (
             <>
-              <RichEditor key={editorKey} value={draft} onChange={setDraft} onSubmit={() => void save()} label={`Notes for ${f.name}`} expandTitle={`Notes · ${f.name}`}
+              <RichEditor key={editorKey} value={draft} onChange={setDraft} onSubmit={() => void save()} label={`Notes for ${f.name}`} expandTitle={`Notes · ${f.name}`} mentionable
                 placeholder="What this document is, what it belongs to, what to do with it…" minHeight={88} maxHeight="min(38vh, 420px)" compact />
               <div className="flex items-center justify-end gap-2">
                 <span className="mr-auto text-[0.6875rem] text-ink-3">{dirty ? "Saved automatically if you switch document or close." : "Ctrl+Enter to save"}</span>

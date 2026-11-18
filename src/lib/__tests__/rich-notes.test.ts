@@ -42,3 +42,11 @@ describe("rich notes colours", () => {
     expect(sanitizeRich('<span style="background-color: rgba(224, 178, 103, 0.35)">h</span>')).toBe('<span style="background-color: #e0b26759">h</span>');
   });
 });
+
+describe("mentions", () => {
+  it("keeps a teammate mention and drops forged attributes", () => {
+    const id = "0b5c2f9e-1d2a-4c3b-9e8f-7a6b5c4d3e2f";
+    expect(sanitizeRich(`<p>Hi <span data-mention="${id}" contenteditable="false" onclick="x">@Sam</span></p>`)).toBe(`<p>Hi <span data-mention="${id}">@Sam</span></p>`);
+    expect(sanitizeRich('<p><span data-mention="javascript:x">@x</span></p>')).toBe("<p>@x</p>");
+  });
+});

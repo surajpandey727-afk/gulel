@@ -11,15 +11,18 @@ import { ThemeProvider } from "@/components/shell/theme-provider";
 import { ActivityDock } from "@/components/shell/activity-dock";
 import { NavProgress } from "@/components/shell/nav-progress";
 import { AppToaster } from "@/components/shell/toaster";
+import { PrefsProvider } from "@/components/shell/prefs-provider";
+import { loadPrefs } from "@/lib/prefs-server";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const supabase = await createClient();
 
-  const [{ data: settings }, approvals, inbox] = await Promise.all([
+  const [{ data: settings }, approvals, inbox, prefs] = await Promise.all([
     supabase.from("workspace_settings").select("onboarding").eq("workspace_id", session.workspaceId).single(),
     supabase.from("approval_requests").select("id", { count: "exact", head: true }).eq("workspace_id", session.workspaceId).eq("status", "pending"),
     supabase.from("conversations").select("id", { count: "exact", head: true }).eq("workspace_id", session.workspaceId).eq("needs_review", true),
+    loadPrefs(session.userId),
   ]);
 
   // First use: capture the founder's writing style before anything else.
@@ -30,6 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const badges = { "/approvals": approvals.count ?? 0, "/inbox": inbox.count ?? 0 };
   return (
     <ThemeProvider>
+      <PrefsProvider initial={prefs}>
       <div className="flex min-h-dvh">
         <Sidebar badges={badges} />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -54,6 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </Suspense>
         <AppToaster />
       </div>
+      </PrefsProvider>
     </ThemeProvider>
   );
 }
