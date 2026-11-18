@@ -70,7 +70,7 @@ export async function editNote(db: Db, workspaceId: string, id: string, body: st
 /** Rich (HTML) bodies are sanitised; plain text is kept as plain text. Limits: 20,000 characters of text, 200 kB stored. */
 export function cleanNoteBody(body: string): string {
   const raw = String(body ?? "");
-  const b = isRich(raw) || /<(strong|em|u|span|br|ul|ol|li|h[2-4])/i.test(raw) ? normaliseRichInput(raw) : raw.trim();
+  const b = isRich(raw) || /<(strong|em|u|span|br|ul|ol|li|h[2-4])\b/i.test(raw) ? normaliseRichInput(raw) : raw.trim();
   if (richToText(b).length > 20000) throw new Error("Notes are limited to 20,000 characters.");
   if (b.length > 200000) throw new Error("This note has too much formatting to save. Clear some formatting and try again.");
   return b;

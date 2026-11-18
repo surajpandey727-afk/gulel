@@ -7,6 +7,13 @@ import { Tip } from "@/components/neo/controls";
 import { cn } from "@/components/neo/cn";
 import { deleteViewAction, listViewsAction, saveViewAction, type SavedView } from "@/app/(app)/central/actions";
 
+/** Key-order independent comparison (the database stores JSON with its keys reordered). */
+function stable(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).filter((k) => (v as Record<string, unknown>)[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
+}
+
 /**
  * Saved views for a board sheet: a named snapshot of columns, widths, freeze, grouping, sort, filters and mode.
  * Views are yours unless you share them with the team. Applying one also becomes your current layout.
@@ -22,7 +29,7 @@ export function SavedViews({ sheet, view, activeId, canWrite, onApply, onReset, 
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   useEffect(() => { setViews(null); void listViewsAction(sheet).then((r) => { if (r.ok) setViews(r.data); }); }, [sheet]);
   const active = views?.find((v) => v.id === activeId) ?? null;
-  const changed = !!active && JSON.stringify(active.view) !== JSON.stringify(view);
+  const changed = !!active && stable(active.view) !== stable(view);
 
   const save = async (input: { id?: string; name: string; shared: boolean }) => {
     const r = await saveViewAction({ ...input, sheet, view: view as Record<string, unknown> });
