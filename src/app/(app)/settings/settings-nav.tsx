@@ -6,6 +6,7 @@ import { cn } from "@/components/neo/cn";
 const ITEMS = [
   ["/settings/profile", "Profile"],
   ["/settings/preferences", "Preferences"],
+  ["/settings/tags", "Document tags"],
   ["/settings/voice", "Brand & Voice DNA"],
   ["/settings/providers", "Claude & AI providers"],
   ["/settings/integrations", "Gmail & LinkedIn"],

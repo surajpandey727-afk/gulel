@@ -86,7 +86,7 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
   const { theme, toggle } = useTheme();
 
   return (
-    <nav aria-label="Primary" className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col gap-1 overflow-y-auto px-4 py-5 lg:flex">
+    <nav aria-label="Primary" className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col gap-1 overflow-y-auto overscroll-contain px-4 py-5 lg:flex [&>*]:shrink-0">
       <Link href="/overview" className="mb-5 flex items-center gap-3 px-2" aria-label="gulel home">
         <GulelMark size={40} className="shrink-0 rounded-[8px]" />
         <span className="leading-tight">
@@ -95,7 +95,7 @@ export function Sidebar({ badges }: { badges: Record<string, number> }) {
         </span>
       </Link>
 
-      <div className="mb-3 flex flex-col gap-1"><SearchTrigger /><NotificationsBell /></div>
+      <div className="mb-2 flex flex-col gap-1.5"><SearchTrigger /><NotificationsBell /></div>
 
       <TopLink item={OVERVIEW} path={path} />
       <TopLink item={BOARDS} path={path} />

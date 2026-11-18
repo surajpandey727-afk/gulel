@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { notifyMentions } from "@/lib/notify/mentions";
 import { getSession } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
+import { deleteTag, ensureTags, listTags, saveTag, type DocTag } from "@/lib/orgs/tags";
 import { createUpload, deleteFile, fileUrl, listFiles, recordFile, resolveOrg, updateFileMeta, type FileRow } from "@/lib/orgs/records";
 
 /**
@@ -13,7 +14,7 @@ import { createUpload, deleteFile, fileUrl, listFiles, recordFile, resolveOrg, u
 type R<T = undefined> = { ok: true; data: T; message?: string } | { ok: false; error: string };
 const fail = (e: unknown) => ({ ok: false as const, error: (e as Error).message || "Something went wrong." });
 
-export interface DocsBundle { org: { id: string; name: string; key: string | null }; files: FileRow[] }
+export interface DocsBundle { org: { id: string; name: string; key: string | null }; files: FileRow[]; tags: DocTag[] }
 
 async function writer() {
   const s = await getSession();
@@ -32,7 +33,8 @@ async function orgFor(ref: string) {
 export async function docsAction(orgKey: string): Promise<R<DocsBundle>> {
   try {
     const { s, db, org } = await orgFor(orgKey);
-    return { ok: true, data: { org: { id: org.id, name: org.trading_name, key: org.cr_key }, files: await listFiles(db, s.workspaceId, [org.id]) } };
+    const [files, tags] = await Promise.all([listFiles(db, s.workspaceId, [org.id]), listTags(db, s.workspaceId)]);
+    return { ok: true, data: { org: { id: org.id, name: org.trading_name, key: org.cr_key }, files, tags } };
   } catch (e) { return fail(e); }
 }
 
@@ -49,6 +51,7 @@ export async function finishDocUploadAction(orgId: string, path: string, name: s
     const s = await writer();
     if (!(await resolveOrg(await createClient(), s.workspaceId, orgId))) throw new Error("Organisation not found.");
     await recordFile(s.workspaceId, { orgId, path, name, mime, via: "ui", userId: s.userId, tags });
+    await ensureTags(s.workspaceId, tags, s.userId);
     revalidatePath(`/organisations/${orgId}`);
     return { ok: true, data: await listFiles(await createClient(), s.workspaceId, [orgId]), message: "Uploaded" };
   } catch (e) { return fail(e); }
@@ -60,6 +63,7 @@ export async function updateDocAction(fileId: string, patch: { tags?: string[]; 
     const db = await createClient();
     const { data: before } = await db.from("organisation_files").select("name, notes, organisation_id, organisations(trading_name)").eq("id", fileId).eq("workspace_id", s.workspaceId).maybeSingle();
     await updateFileMeta(db, s.workspaceId, fileId, patch);
+    if (patch.tags) await ensureTags(s.workspaceId, patch.tags, s.userId);
     if (before && patch.notes) {
       const org = (before.organisations as unknown as { trading_name: string } | null)?.trading_name ?? "an organisation";
       after(() => notifyMentions({ workspaceId: s.workspaceId, actorId: s.userId, body: patch.notes!, before: before.notes, where: `${org} (document “${before.name}”)`, link: `/organisations/${before.organisation_id}#files` }));
@@ -84,4 +88,15 @@ export async function docUrlsAction(fileIds: string[]): Promise<R<{ id: string; 
 
 export async function deleteDocAction(fileId: string): Promise<R> {
   try { const s = await writer(); await deleteFile(await createClient(), s.workspaceId, fileId); return { ok: true, data: undefined, message: "Document removed" }; } catch (e) { return fail(e); }
+}
+
+// ---------------------------------------------------------------- shared document tags
+export async function tagsAction(): Promise<R<DocTag[]>> {
+  try { const s = await getSession(); return { ok: true, data: await listTags(await createClient(), s.workspaceId) }; } catch (e) { return fail(e); }
+}
+export async function saveTagAction(input: { id?: string; name: string; color: string }): Promise<R<DocTag[]>> {
+  try { const s = await writer(); const db = await createClient(); await saveTag(db, s.workspaceId, input, s.userId); return { ok: true, data: await listTags(db, s.workspaceId), message: "Tag saved" }; } catch (e) { return fail(e); }
+}
+export async function deleteTagAction(id: string, fromDocuments: boolean): Promise<R<DocTag[]>> {
+  try { const s = await writer(); const db = await createClient(); await deleteTag(db, s.workspaceId, id, fromDocuments); return { ok: true, data: await listTags(db, s.workspaceId), message: "Tag removed" }; } catch (e) { return fail(e); }
 }

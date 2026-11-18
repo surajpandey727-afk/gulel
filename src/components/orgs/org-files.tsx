@@ -1,7 +1,9 @@
 "use client";
+import { TagChip, type TagDef } from "@/components/tags/tag-input";
+import { tagsAction } from "@/app/(app)/central/doc-actions";
 import { RichView } from "@/components/notes/rich-editor";
 import { richToText } from "@/lib/notes/rich";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Download, Eye, FileText, Paperclip, Trash2, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +24,8 @@ export function OrgFiles({ organisationId, initial, canWrite = true, compact }: 
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState(initial);
+  const [tagDefs, setTagDefs] = useState<TagDef[]>([]);
+  useEffect(() => { void tagsAction().then((r) => { if (r.ok) setTagDefs(r.data); }); }, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -88,7 +92,7 @@ export function OrgFiles({ organisationId, initial, canWrite = true, compact }: 
                 <button type="button" onClick={() => open(f.id, false)} className="truncate text-left text-sm text-ink hover:text-oxblood" title={f.name}>{f.name}</button>
                 {f.tags?.length > 0 && (
                   <span className="flex min-w-0 flex-wrap items-center gap-1 text-[0.6875rem] text-ink-3">
-                    {f.tags.map((t) => <span key={t} className="rounded-full bg-oxblood/10 px-1.5 text-oxblood">{t}</span>)}
+                    {f.tags.map((t) => <TagChip key={t} name={t} defs={tagDefs} size="xs" />)}
                   </span>
                 )}
                 {f.notes && richToText(f.notes) && (

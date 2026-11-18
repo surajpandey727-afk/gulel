@@ -2,10 +2,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  ChevronDown, ChevronUp, Download, ExternalLink, FileArchive, FileImage, FileSpreadsheet, FileText, Loader2, NotebookPen, Paperclip, Tag, Trash2, Upload, X,
+  Download, ExternalLink, FileArchive, FileImage, FileSpreadsheet, FileText, Loader2, NotebookPen, Paperclip, Tag, Trash2, Upload, X,
 } from "lucide-react";
 import { RichEditor, RichView } from "@/components/notes/rich-editor";
-import { richToText } from "@/lib/notes/rich";
+import { TagChip, TagInput, tagColor, type TagDef } from "@/components/tags/tag-input";
+import { PALETTE } from "./palette";
+import { richToText, toSafeHtml } from "@/lib/notes/rich";
 import { toast } from "sonner";
 import { Button } from "@/components/neo/button";
 import { Tip } from "@/components/neo/controls";
@@ -145,11 +147,15 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
     if (!r.ok) { setFiles(before); toast.error(r.error); return false; }
     return true;
   };
-  // Unsaved document notes are saved (never dropped) when you switch document or close the window.
-  const flushNotes = useRef<() => Promise<void>>(async () => {});
-  const [notesOpen, setNotesOpen] = useState(true);
-  const view = async (id: string, openNotes = false) => { await flushNotes.current(); setViewing(id); if (openNotes) setNotesOpen(true); };
-  const closeAll = async () => { await flushNotes.current(); onClose(); };
+  const [notesFor, setNotesFor] = useState<string | null>(null);
+  const view = (id: string) => setViewing(id);
+  const closeAll = () => onClose();
+  // The team's shared tag list; tags typed here join it on save (the server adds them), so mirror that locally.
+  const tagDefs: TagDef[] = useMemo(() => {
+    const defs = [...(bundle?.tags ?? [])].map((t) => ({ name: t.name, color: t.color }));
+    for (const f of files) for (const t of f.tags) if (!defs.some((d) => d.name.toLowerCase() === t.toLowerCase())) defs.push({ name: t, color: tagColor(t) });
+    return defs.sort((a, b) => a.name.localeCompare(b.name));
+  }, [bundle, files]);
   const remove = async (f: FileRow) => {
     const r = await deleteDocAction(f.id);
     if (!r.ok) return toast.error(r.error);
@@ -187,20 +193,19 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
 
   // Group by the set of tags: each heading says what those documents belong to.
   const groups = useMemo(() => {
-    const m = new Map<string, { label: string; files: FileRow[] }>();
+    const m = new Map<string, { label: string; tags: string[]; files: FileRow[] }>();
     for (const f of files) {
       const tags = [...f.tags].sort((a, b) => a.localeCompare(b));
       const key = tags.map((t) => t.toLowerCase()).join("\u0000");
-      if (!m.has(key)) m.set(key, { label: tags.join(" · "), files: [] });
+      if (!m.has(key)) m.set(key, { label: tags.join(" · "), tags, files: [] });
       m.get(key)!.files.push(f);
     }
     return [...m.entries()].sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b))).map(([, g]) => g);
   }, [files]);
-  const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort((a, b) => a.localeCompare(b)), [files]);
   const current = files.find((f) => f.id === viewing) ?? null;
 
   return (
-    <Dialog.Root open onOpenChange={(o) => { if (!o) void closeAll(); }}>
+    <Dialog.Root open onOpenChange={(o) => { if (!o && !notesFor) closeAll(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
@@ -231,7 +236,7 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
                 {canWrite && (
                   <div className="border-b border-hairline px-4 py-3">
                     <p className="mb-1.5 flex items-center gap-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-ink-3"><Tag className="h-3 w-3" aria-hidden />Tags for new uploads</p>
-                    <TagEditor tags={uploadTags} suggestions={allTags} onChange={setUploadTags} placeholder="e.g. Proposal, Research, NDA" />
+                    <TagInput tags={uploadTags} defs={tagDefs} onChange={setUploadTags} placeholder="Pick or type: Qualification, Proposal, NDA…" label="Tags for new uploads" />
                   </div>
                 )}
                 <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -241,14 +246,15 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
                     </button>
                   ) : groups.map((g) => (
                     <section key={g.label || "untagged"} className="mb-4">
-                      <h3 className="mb-2 flex items-center gap-1.5 px-1 text-xs font-semibold text-ink">
-                        <Tag className="h-3.5 w-3.5 text-oxblood" aria-hidden />{g.label || <span className="font-medium text-ink-3">Untagged</span>}
+                      <h3 className="mb-2 flex flex-wrap items-center gap-1.5 px-1 text-xs font-semibold text-ink">
+                        {g.tags.length ? g.tags.map((t) => <span key={t} className={cn("h-2 w-2 rounded-full", PALETTE[tagColor(t, tagDefs)].dot)} aria-hidden />) : <Tag className="h-3.5 w-3.5 text-ink-3" aria-hidden />}
+                        {g.label || <span className="font-medium text-ink-3">Untagged</span>}
                         <span className="font-normal text-ink-3">{g.files.length}</span>
                       </h3>
                       <ul className="flex flex-col gap-2">
                         {g.files.map((f) => (
-                          <DocCard key={f.id} f={f} active={viewing === f.id} canWrite={canWrite} suggestions={allTags}
-                            onView={(notes) => void view(f.id, notes)} onPatch={(p) => void patch(f, p)} onDelete={() => void remove(f)} />
+                          <DocCard key={f.id} f={f} active={viewing === f.id} canWrite={canWrite} defs={tagDefs}
+                            onView={() => view(f.id)} onNotes={() => { view(f.id); setNotesFor(f.id); }} onPatch={(p) => void patch(f, p)} onDelete={() => void remove(f)} />
                         ))}
                       </ul>
                     </section>
@@ -257,9 +263,7 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
               </div>
               {/* viewer */}
               <div className="flex min-h-[50dvh] min-w-0 flex-1 flex-col bg-sunken/40">
-                {current && <DocNotesPanel key={current.id} f={current} canWrite={canWrite} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)}
-                  register={(fn) => { flushNotes.current = fn; }} onSave={(notes) => patch(current, { notes })} />}
-                {current ? <Viewer key={current.id} f={current} /> : (
+                {current ? <Viewer key={current.id} f={current} onNotes={() => setNotesFor(current.id)} hasNotes={!!richToText(current.notes ?? "")} /> : (
                   <div className="grid flex-1 place-items-center p-8 text-center text-sm text-ink-3">
                     <p>Select a document to preview it here.<br />PDFs, Word (.docx), images and text open inside gulel; anything else opens in a new tab.</p>
                   </div>
@@ -269,22 +273,23 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
           )}
         </Dialog.Content>
       </Dialog.Portal>
+      {notesFor && <NotesWindow files={files} startId={notesFor} canWrite={canWrite} defs={tagDefs} onSave={(f, notes) => patch(f, { notes })} onClose={() => setNotesFor(null)} />}
     </Dialog.Root>
   );
 }
 
-function DocCard({ f, active, canWrite, suggestions, onView, onPatch, onDelete }: {
-  f: FileRow; active: boolean; canWrite: boolean; suggestions: string[]; onView: (openNotes?: boolean) => void; onPatch: (p: { tags?: string[]; notes?: string | null }) => void; onDelete: () => void;
+function DocCard({ f, active, canWrite, defs, onView, onNotes, onPatch, onDelete }: {
+  f: FileRow; active: boolean; canWrite: boolean; defs: TagDef[]; onView: () => void; onNotes: () => void; onPatch: (p: { tags?: string[]; notes?: string | null }) => void; onDelete: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
-  const preview = f.notes ? richToText(f.notes).replace(/\s+/g, " ").trim() : "";
+  const has = !!richToText(f.notes ?? "");
   return (
     <li className={cn("flex flex-col gap-2 rounded-neo-sm bg-canvas p-3 neo-raised-sm", active && "ring-2 ring-oxblood/40")}>
       <div className="flex items-start gap-2">
-        <button type="button" onClick={() => onView()} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+        <button type="button" onClick={onView} className="flex min-w-0 flex-1 items-start gap-2 text-left">
           <FileIcon f={f} className="mt-0.5 h-4 w-4 shrink-0 text-oxblood" />
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium text-ink hover:text-oxblood">{f.name}</span>
+            <span className="block truncate text-sm font-medium text-ink hover:text-oxblood" title={f.name}>{f.name}</span>
             <span className="block text-[0.6875rem] text-ink-3">{size(f.size_bytes)} · {when(f.created_at)}{f.via !== "ui" ? ` · by ${f.uploaded_label ?? "agent"}` : ""}</span>
           </span>
         </button>
@@ -298,15 +303,20 @@ function DocCard({ f, active, canWrite, suggestions, onView, onPatch, onDelete }
           ))}
         </div>
       </div>
-      {canWrite ? <TagEditor tags={f.tags} suggestions={suggestions} onChange={(tags) => onPatch({ tags })} placeholder="Add a tag" /> : f.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">{f.tags.map((t) => <span key={t} className="rounded-full bg-oxblood/10 px-2 py-0.5 text-[0.6875rem] text-oxblood">{t}</span>)}</div>
+      {canWrite ? <TagInput tags={f.tags} defs={defs} onChange={(tags) => onPatch({ tags })} placeholder="Add a tag" label={`Tags for ${f.name}`} /> : f.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">{f.tags.map((t) => <TagChip key={t} name={t} defs={defs} />)}</div>
       )}
-      {preview ? (
-        <button type="button" onClick={() => onView(true)} className="flex items-start gap-1.5 rounded-neo-sm neo-inset-sm px-2.5 py-1.5 text-left text-xs text-ink-2 hover:text-ink">
-          <NotebookPen className="mt-px h-3.5 w-3.5 shrink-0 text-warning" aria-hidden /><span className="line-clamp-2">{preview}</span>
+      {has ? (
+        <button type="button" onClick={onNotes} className="group/note relative block rounded-neo-sm neo-inset-sm px-3 py-2 text-left" aria-label={`Open notes for ${f.name}`}>
+          <span className="mb-1 flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-warning"><NotebookPen className="h-3 w-3" aria-hidden />Notes<span className="ml-auto font-normal normal-case tracking-normal text-ink-3 opacity-0 transition-opacity group-hover/note:opacity-100">Open</span></span>
+          {/* A short, faded preview; the full note opens in its own window. */}
+          <span className="relative block max-h-[4.5rem] overflow-hidden text-xs text-ink-2 [&_.rich-note]:text-xs [&_.rich-note]:leading-relaxed [&_.rich-note_h2]:text-xs [&_.rich-note_h3]:text-xs">
+            <span className="rich-note block" dangerouslySetInnerHTML={{ __html: toSafeHtml(f.notes ?? "") }} />
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[var(--surface-sunken)] to-transparent" aria-hidden />
+          </span>
         </button>
       ) : canWrite && (
-        <button type="button" onClick={() => onView(true)} className="flex items-center gap-1.5 self-start rounded-full px-2 py-0.5 text-[0.6875rem] text-ink-3 hover:bg-sunken/70 hover:text-oxblood">
+        <button type="button" onClick={onNotes} className="flex items-center gap-1.5 self-start rounded-full px-2 py-0.5 text-[0.6875rem] text-ink-3 hover:bg-sunken/70 hover:text-oxblood">
           <NotebookPen className="h-3.5 w-3.5" aria-hidden />Add notes
         </button>
       )}
@@ -314,87 +324,11 @@ function DocCard({ f, active, canWrite, suggestions, onView, onPatch, onDelete }
   );
 }
 
-/**
- * Notes for the document being viewed, beside it and wide enough to read: rich text, grows with the note, expandable.
- * Save explicitly, or switch document / close the window and it saves for you; Discard reverts.
- */
-function DocNotesPanel({ f, canWrite, open, onToggle, register, onSave }: {
-  f: FileRow; canWrite: boolean; open: boolean; onToggle: () => void; register: (flush: () => Promise<void>) => void; onSave: (notes: string | null) => Promise<boolean>;
-}) {
-  const [draft, setDraft] = useState(f.notes ?? "");
-  const [editorKey, setEditorKey] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const saved = useRef(f.notes ?? "");
-  const dirty = canWrite && draft !== saved.current && !(richToText(draft) === "" && richToText(saved.current) === "");
-  const save = useCallback(async () => {
-    if (!dirty) return;
-    setSaving(true);
-    const value = richToText(draft) ? draft : null;
-    if (await onSave(value)) { saved.current = draft; toast.success(`Notes saved for ${f.name}`); }
-    setSaving(false);
-  }, [dirty, draft, onSave, f.name]);
-  useEffect(() => { register(save); }, [register, save]);
-  useEffect(() => () => register(async () => {}), [register]);
-  const has = !!richToText(f.notes ?? "");
-  return (
-    <section aria-label={`Notes for ${f.name}`} className="border-b border-hairline bg-canvas">
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-2 text-left">
-        <NotebookPen className={cn("h-4 w-4", has ? "text-warning" : "text-ink-3")} aria-hidden />
-        <span className="text-xs font-semibold text-ink">Notes</span>
-        <span className="min-w-0 flex-1 truncate text-[0.6875rem] text-ink-3">{dirty ? "Unsaved changes" : has ? richToText(f.notes ?? "").replace(/\s+/g, " ").slice(0, 90) : canWrite ? "None yet. Add context: what it is, what to do with it" : "No notes"}</span>
-        {open ? <ChevronUp className="h-4 w-4 text-ink-3" aria-hidden /> : <ChevronDown className="h-4 w-4 text-ink-3" aria-hidden />}
-      </button>
-      {open && (
-        <div className="flex flex-col gap-2 px-4 pb-3">
-          {canWrite ? (
-            <>
-              <RichEditor key={editorKey} value={draft} onChange={setDraft} onSubmit={() => void save()} label={`Notes for ${f.name}`} expandTitle={`Notes · ${f.name}`} mentionable
-                placeholder="What this document is, what it belongs to, what to do with it…" minHeight={88} maxHeight="min(38vh, 420px)" compact />
-              <div className="flex items-center justify-end gap-2">
-                <span className="mr-auto text-[0.6875rem] text-ink-3">{dirty ? "Saved automatically if you switch document or close." : "Ctrl+Enter to save"}</span>
-                {dirty && <Button size="sm" variant="ghost" onClick={() => { setDraft(saved.current); setEditorKey((k) => k + 1); }}>Discard</Button>}
-                <Button size="sm" variant="primary" onClick={() => void save()} loading={saving} disabled={!dirty}>Save notes</Button>
-              </div>
-            </>
-          ) : has ? <div className="max-h-[38vh] overflow-y-auto rounded-neo-sm neo-inset-sm px-4 py-3"><RichView body={f.notes ?? ""} title={`Notes · ${f.name}`} /></div> : null}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Open string tags: type and press Enter or comma; suggestions come from the organisation's existing tags. */
-function TagEditor({ tags, suggestions, onChange, placeholder }: { tags: string[]; suggestions: string[]; onChange: (t: string[]) => void; placeholder: string }) {
-  const [v, setV] = useState("");
-  const listId = useMemo(() => `tags-${Math.random().toString(36).slice(2)}`, []);
-  const add = () => {
-    const t = v.replace(/,/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
-    setV("");
-    if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) onChange([...tags, t]);
-  };
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {tags.map((t) => (
-        <span key={t} className="inline-flex items-center gap-1 rounded-full bg-oxblood/10 py-0.5 pl-2 pr-1 text-[0.6875rem] font-medium text-oxblood">
-          {t}<button type="button" aria-label={`Remove tag ${t}`} onClick={() => onChange(tags.filter((x) => x !== t))} className="grid h-4 w-4 place-items-center rounded-full hover:bg-oxblood/15"><X className="h-2.5 w-2.5" /></button>
-        </span>
-      ))}
-      <input
-        value={v} onChange={(e) => setV(e.target.value)} list={listId} placeholder={tags.length ? "" : placeholder} aria-label="Add tag"
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); } else if (e.key === "Backspace" && !v && tags.length) onChange(tags.slice(0, -1)); }}
-        onBlur={add}
-        className="min-w-24 flex-1 bg-transparent px-1 py-0.5 text-[0.6875rem] text-ink outline-none placeholder:text-ink-3"
-      />
-      <datalist id={listId}>{suggestions.filter((s) => !tags.includes(s)).map((s) => <option key={s} value={s} />)}</datalist>
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------------- viewer */
 
 type View = { kind: "loading" } | { kind: "pdf" | "image"; url: string } | { kind: "html"; html: string } | { kind: "text"; text: string } | { kind: "other" } | { kind: "error"; message: string };
 
-function Viewer({ f }: { f: FileRow }) {
+function Viewer({ f, onNotes, hasNotes }: { f: FileRow; onNotes: () => void; hasNotes: boolean }) {
   const [v, setV] = useState<View>({ kind: "loading" });
   useEffect(() => {
     let live = true;
@@ -421,14 +355,15 @@ function Viewer({ f }: { f: FileRow }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-hairline px-4 py-2">
         <FileIcon f={f} className="h-4 w-4 shrink-0 text-oxblood" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{f.name}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink" title={f.name}>{f.name}</span>
+        <Button size="sm" onClick={onNotes}><NotebookPen className={cn("h-3.5 w-3.5", hasNotes && "text-warning")} aria-hidden />{hasNotes ? "Notes" : "Add notes"}</Button>
         <Button size="sm" onClick={() => void openInTab(f.id)}><ExternalLink className="h-3.5 w-3.5" aria-hidden />New tab</Button>
         <Button size="sm" onClick={() => void downloadOne(f.id)}><Download className="h-3.5 w-3.5" aria-hidden />Download</Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {v.kind === "loading" && <p className="flex items-center gap-2 p-6 text-sm text-ink-3"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />Opening…</p>}
         {v.kind === "error" && <p className="p-6 text-sm text-danger">{v.message}</p>}
-        {v.kind === "pdf" && <iframe title={f.name} src={v.url} className="h-full min-h-[70dvh] w-full bg-white" />}
+        {v.kind === "pdf" && <iframe title={f.name} src={v.url} className="h-full min-h-[60dvh] w-full bg-white" />}
         {v.kind === "image" && <div className="grid min-h-full place-items-center p-4">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={v.url} alt={f.name} className="max-h-[75dvh] max-w-full rounded-neo-sm object-contain" /></div>}
         {v.kind === "text" && <pre className="whitespace-pre-wrap break-words p-5 font-mono text-xs leading-relaxed text-ink">{v.text}</pre>}
         {v.kind === "html" && <article className="docx-preview mx-auto max-w-3xl bg-white p-8 text-sm leading-relaxed text-[#1a1a1a] shadow-sm sm:my-6 sm:rounded-neo-sm" dangerouslySetInnerHTML={{ __html: v.html }} />}
@@ -446,5 +381,95 @@ function Viewer({ f }: { f: FileRow }) {
         )}
       </div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- notes window */
+
+/**
+ * Every document's notes in one window: the list on the left (short previews, scrollable), the selected note on the
+ * right to read and edit in full. Switching note or closing saves any change first, so nothing is lost; Discard reverts.
+ */
+function NotesWindow({ files, startId, canWrite, defs, onSave, onClose }: {
+  files: FileRow[]; startId: string; canWrite: boolean; defs: TagDef[]; onSave: (f: FileRow, notes: string | null) => Promise<boolean>; onClose: () => void;
+}) {
+  const [id, setId] = useState(startId);
+  const f = files.find((x) => x.id === id) ?? files[0];
+  const [draft, setDraft] = useState(f?.notes ?? "");
+  const [editorKey, setEditorKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const saved = useRef(f?.notes ?? "");
+  const dirty = canWrite && draft !== saved.current && !(richToText(draft) === "" && richToText(saved.current) === "");
+  const save = async () => {
+    if (!dirty || !f) return true;
+    setSaving(true);
+    const ok = await onSave(f, richToText(draft) ? draft : null);
+    setSaving(false);
+    if (ok) { saved.current = draft; toast.success(`Notes saved · ${f.name}`); }
+    return ok;
+  };
+  const go = async (next: string) => {
+    if (next === id) return;
+    if (!(await save())) return;
+    const nf = files.find((x) => x.id === next);
+    setId(next); setDraft(nf?.notes ?? ""); saved.current = nf?.notes ?? ""; setEditorKey((k) => k + 1);
+  };
+  const close = async () => { if (await save()) onClose(); };
+  if (!f) return null;
+  const withNotes = files.filter((x) => richToText(x.notes ?? ""));
+  const list = [...withNotes, ...files.filter((x) => !withNotes.includes(x))];
+  return (
+    <Dialog.Root open onOpenChange={(o) => { if (!o) void close(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[55] bg-black/25" />
+        <Dialog.Content aria-describedby={undefined} className="fixed inset-3 z-[56] mx-auto flex max-w-[1200px] flex-col overflow-hidden rounded-neo-lg bg-canvas neo-raised-lg outline-none sm:inset-8">
+          <header className="flex items-center gap-2 border-b border-hairline px-5 py-3">
+            <NotebookPen className="h-4 w-4 shrink-0 text-warning" aria-hidden />
+            <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Notes · {f.name}</Dialog.Title>
+            {saving && <span className="inline-flex items-center gap-1.5 text-xs text-ink-3"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Saving…</span>}
+            <Tip content={dirty ? "Save and close (Esc)" : "Close (Esc)"}>
+              <button type="button" onClick={() => void close()} aria-label={dirty ? "Save and close" : "Close"} className="grid h-8 w-8 place-items-center rounded-full neo-raised-sm text-ink-2 hover:text-oxblood"><X className="h-4 w-4" /></button>
+            </Tip>
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            <nav aria-label="Documents" className="max-h-48 shrink-0 overflow-y-auto border-b border-hairline p-2 md:max-h-none md:w-72 md:border-b-0 md:border-r">
+              <ul className="flex flex-col gap-1">
+                {list.map((x) => {
+                  const text = richToText(x.notes ?? "").replace(/\s+/g, " ").trim();
+                  return (
+                    <li key={x.id}>
+                      <button type="button" onClick={() => void go(x.id)} aria-current={x.id === id ? "true" : undefined}
+                        className={cn("flex w-full flex-col gap-1 rounded-neo-sm px-2.5 py-2 text-left", x.id === id ? "neo-raised-sm" : "hover:bg-sunken/60")}>
+                        <span className={cn("truncate text-xs font-medium", x.id === id ? "text-oxblood" : "text-ink")}>{x.name}</span>
+                        {x.tags.length > 0 && <span className="flex flex-wrap gap-1">{x.tags.slice(0, 3).map((t) => <TagChip key={t} name={t} defs={defs} size="xs" />)}</span>}
+                        <span className={cn("line-clamp-2 text-[0.6875rem]", text ? "text-ink-3" : "italic text-ink-3/70")}>{text || "No notes yet"}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4 md:p-5">
+              {f.tags.length > 0 && <div className="flex flex-wrap gap-1">{f.tags.map((t) => <TagChip key={t} name={t} defs={defs} />)}</div>}
+              {canWrite ? (
+                <>
+                  <div className="min-h-0 flex-1">
+                    <RichEditor key={`${f.id}:${editorKey}`} value={draft} onChange={setDraft} onSubmit={() => void save()} label={`Notes for ${f.name}`} expandTitle={`Notes · ${f.name}`} mentionable autoFocus
+                      placeholder="What this document is, what it belongs to, what to do with it…" minHeight={240} maxHeight="calc(100dvh - 18rem)" />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className="mr-auto text-[0.6875rem] text-ink-3">{dirty ? "Unsaved. Switching document or closing saves it." : "Ctrl+Enter to save · @ to mention a teammate"}</span>
+                    {dirty && <Button size="sm" variant="ghost" onClick={() => { setDraft(saved.current); setEditorKey((k) => k + 1); }}>Discard changes</Button>}
+                    <Button size="sm" variant="primary" onClick={() => void save()} loading={saving} disabled={!dirty}>Save notes</Button>
+                  </div>
+                </>
+              ) : richToText(f.notes ?? "") ? (
+                <div className="min-h-0 flex-1 overflow-y-auto rounded-neo neo-inset-sm px-5 py-4"><RichView body={f.notes ?? ""} clampHeight={100000} /></div>
+              ) : <p className="text-sm text-ink-3">No notes on this document.</p>}
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
