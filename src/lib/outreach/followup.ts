@@ -1,3 +1,4 @@
+import { richToText } from "@/lib/notes/rich";
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { runStructured } from "@/lib/ai/gateway";
@@ -68,10 +69,10 @@ export async function generateMeetingBrief(workspaceId: string, userId: string, 
   if (!opp) throw new Error("Opportunity not found");
   const pkg = await buildEvidencePackage(workspaceId, opp.organisation_id);
   const { data: msgs } = opp.conversation_id ? await supabase.from("conversation_messages").select("direction, body_text, snippet, occurred_at").eq("conversation_id", opp.conversation_id).order("occurred_at") : { data: [] };
-  const { data: notes } = await supabase.from("notes").select("body, created_at").eq("organisation_id", opp.organisation_id);
+  const { data: notes } = await supabase.from("notes").select("body, created_at").eq("organisation_id", opp.organisation_id).is("deleted_at", null).is("archived_at", null);
   const res = await runStructured({
     workspaceId, agent: "chanakya", system: BRIEF_SYSTEM, schema: BriefSchema, userId, maxTokens: 8000, entity: { type: "opportunity", id: opportunityId },
-    input: [untrusted("dossier", pkg), untrusted("conversation", msgs ?? []), untrusted("internal_notes", notes ?? []), `Opportunity: ${opp.name}${opp.service ? ` · service ${opp.service}` : ""}`].join("\n\n"),
+    input: [untrusted("dossier", pkg), untrusted("conversation", msgs ?? []), untrusted("internal_notes", (notes ?? []).map((n) => ({ ...n, body: richToText(n.body) }))), `Opportunity: ${opp.name}${opp.service ? ` · service ${opp.service}` : ""}`].join("\n\n"),
   });
   const valid = new Set(pkg.evidence.map((e) => e.id));
   const brief = { ...res.data, evidence_ids: res.data.evidence_ids.filter((x) => valid.has(x)), generated_at: new Date().toISOString(), model: res.model };

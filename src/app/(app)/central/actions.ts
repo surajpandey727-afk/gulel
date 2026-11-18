@@ -34,7 +34,7 @@ export async function applyOpsAction(ops: Op[], opts: { force?: boolean; via?: "
     const db = await createClient();
     const res = await applyOps({ db, workspaceId: s.workspaceId, actorId: s.userId, via: opts.via ?? "ui", note: opts.note }, ops, { force: opts.force });
     if (!res.ok) return { ok: false, error: res.error ?? "Change rejected." };
-    const ids = new Set(res.results.map((r) => r.rowId).filter(Boolean));
+    const ids = new Set(res.results.flatMap((r) => [r.rowId, ...(r.touched ?? [])]).filter(Boolean));
     const rows = (res.store?.rows ?? []).filter((r) => ids.has(r.id));
     if (res.results.some((r) => r.op !== "color" && r.op !== "move")) after(() => autoPush(s.workspaceId, s.userId));
     return { ok: true, data: { results: res.results, rows } };

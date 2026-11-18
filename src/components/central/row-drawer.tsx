@@ -30,7 +30,7 @@ export function RowDrawer({ open, onOpenChange, rowId, store, idx, def, canWrite
   const related = relatedRows(idx, row);
   const orgKey = row.sheet === "Organisations" ? row.row_key : typeof row.data.org_id === "string" && /^ORG-/.test(row.data.org_id) ? row.data.org_id : null;
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} title={title}>
+    <Drawer open={open} onOpenChange={onOpenChange} title={title} wide>
       <div className="flex flex-col gap-5">
         <div className="flex items-center gap-2 text-xs text-ink-3">
           <span className="font-mono">{row.row_key ?? "no ID"}</span><span>·</span><span>{def.name.replace(/_/g, " ")}</span>
@@ -99,7 +99,7 @@ export function RowDrawer({ open, onOpenChange, rowId, store, idx, def, canWrite
             {history?.ok && history.data.map((h) => (
               <li key={h.id} className="rounded-neo-sm neo-inset-sm px-3 py-2 text-xs">
                 <div className="flex items-center gap-2 text-ink-2">
-                  <span className="font-medium capitalize text-ink">{h.action}</span>
+                  <span className="font-medium capitalize text-ink">{h.action === "move" ? `Priority ${String(h.before?.priority ?? "?")} → ${String(h.after?.priority ?? "?")}` : h.action}</span>
                   <span>via {VIA[h.via] ?? h.via}{h.actor ? ` · ${h.actor}` : ""}</span>
                   <span className="ml-auto text-ink-3">{new Date(h.created_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</span>
                 </div>

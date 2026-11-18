@@ -108,12 +108,12 @@ export function Modal({ open, onOpenChange, title, description, children, footer
   );
 }
 
-export function Drawer({ open, onOpenChange, title, children }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; children: React.ReactNode }) {
+export function Drawer({ open, onOpenChange, title, children, wide }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#1414141f]" />
-        <DialogPrimitive.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-canvas shadow-[-12px_0_32px_#b9b0a455] transition-transform duration-300">
+        <DialogPrimitive.Content className={cn("fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-canvas shadow-[-12px_0_32px_#b9b0a455] transition-transform duration-300", wide ? "max-w-2xl" : "max-w-md")}>
           <div className="flex items-center justify-between px-5 py-4">
             <DialogPrimitive.Title className="font-semibold">{title}</DialogPrimitive.Title>
             <DialogPrimitive.Description className="sr-only">{title}</DialogPrimitive.Description>

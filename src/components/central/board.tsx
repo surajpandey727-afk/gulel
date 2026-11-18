@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle, Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronRight, Columns3, Copy, Download, EyeOff, Filter, GripVertical,
   KanbanSquare, LayoutDashboard, Layers, Lock, Maximize2, Minimize2, MoreHorizontal, Palette, Plus, Redo2, RefreshCw, RotateCcw, Search, Paperclip, Sparkles, StickyNote, Table2, Trash2, Undo2, X,
@@ -24,6 +24,11 @@ import { MunshiPanel } from "./munshi";
 import { MarketDashboard } from "./market-dashboard";
 import { SheetTabs } from "./sheet-tabs";
 import { DocsMarker, DocumentsDialog } from "./documents";
+import { useRowDrag, type DropTarget } from "./use-row-drag";
+import { RichView } from "@/components/notes/rich-editor";
+import { orgContextAction } from "@/app/(app)/organisations/records-actions";
+import type { NoteRow } from "@/lib/orgs/records";
+import { orderedRows, placeRow, priorityNumbers, rowBefore } from "@/lib/central/order";
 
 /* ---------------------------------------------------------------- view model */
 
@@ -67,7 +72,16 @@ const INLINE_TYPES = new Set(["text", "number", "date", "email", "url", "id"]);
 const TYPE_GLYPH: Partial<Record<ColumnDef["type"], string>> = { ref: "◐", entity: "↗", choice: "◐", date: "▦", number: "#", formula: "ƒ", id: "№", email: "@", url: "⌁", longtext: "¶" };
 
 function applyLocal(store: Store, ops: Op[]): Store {
-  const rows = store.rows.map((r) => {
+  let base = store.rows;
+  for (const op of ops) {
+    if (op.op !== "place") continue;
+    const anchor = op.after ? base.find((r) => r.sheet === op.sheet && !r.deleted_at && (r.id === op.after || r.row_key === op.after)) : null;
+    const row = base.find((r) => r.sheet === op.sheet && !r.deleted_at && (r.id === op.key || r.row_key === op.key));
+    if (!row || (op.after && !anchor)) continue;
+    const moves = placeRow(base, op.sheet, row.id, anchor?.id ?? null);
+    base = base.map((r) => (moves.has(r.id) ? { ...r, position: moves.get(r.id)! } : r));
+  }
+  const rows = base.map((r) => {
     let next = r;
     for (const op of ops) {
       if (op.op === "insert" || op.sheet !== r.sheet || (op.key !== r.id && op.key !== r.row_key)) continue;
@@ -142,7 +156,7 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
   /* ---------- columns */
   const columns = useMemo(() => def.columns.filter((c) => c.key !== "row_check" && !view.hidden.includes(c.key) && (view.showLookups || !isLookupCol(def, c))), [def, view.hidden, view.showLookups]);
   const width = (c: ColumnDef) => view.widths[c.key] ?? Math.max(c.type === "id" ? 96 : 110, Math.min(c.type === "longtext" ? 280 : 220, c.width));
-  const LEAD = 118;
+  const LEAD = 146;
   const nameKey = (columns.find((c) => c.type === "text" || c.type === "longtext") ?? columns.find((c) => c.type === "entity") ?? columns[0])?.key ?? "";
   const frozenCount = Math.min(view.frozen, columns.length);
   const lefts = useMemo(() => {
@@ -448,6 +462,10 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
     if (ops.length && (await run(ops, inverse))) toast.success(`Pasted into ${ops.length} row${ops.length > 1 ? "s" : ""}`);
   }, [flatRows, columns, run, sheet]);
 
+  // Reorder helpers are defined further down; the key handler reaches them through refs.
+  const placeRef = useRef<(t: DropTarget) => void>(() => {});
+  const groupIdsRef = useRef<(id: string) => string[]>(() => []);
+  const canDragRef = useRef(false);
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (editing || (e.target as HTMLElement).closest("input,textarea,select,[role=dialog]")) return;
     const mod = e.ctrlKey || e.metaKey;
@@ -457,6 +475,13 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
     const row = store.rows.find((r) => r.id === active.rowId);
     const c = def.columns.find((x) => x.key === active.key);
     if (!row || !c) return;
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      if (!canDragRef.current) { toast("Clear the column sort to reorder rows"); return; }
+      const ids = groupIdsRef.current(row.id), from = ids.indexOf(row.id), to = e.key === "ArrowUp" ? from - 1 : from + 1;
+      if (from >= 0 && to >= 0 && to < ids.length) { const rest = ids.filter((x) => x !== row.id); placeRef.current({ id: row.id, afterId: rest[to - 1] ?? null, beforeId: rest[to] ?? null, from, to }); }
+      return;
+    }
     const map: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
     if (map[e.key]) { e.preventDefault(); move(...map[e.key]); return; }
     if (e.key === "Tab") { e.preventDefault(); move(0, e.shiftKey ? -1 : 1); return; }
@@ -479,21 +504,32 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
     if (e.key === " " && ["ref", "entity", "choice"].includes(c.type)) { e.preventDefault(); startEdit(active); }
   }, [editing, active, store, def, move, startEdit, setCell, idx, computed, pasteAt, undo, redo, duplicateRows]);
 
-  /* ---------- drag to reorder */
-  const [dragId, setDragId] = useState<string | null>(null);
-  const onDrop = useCallback((targetId: string) => {
-    if (!dragId || dragId === targetId || view.sort) return setDragId(null);
-    const list = idx.bySheet.get(sheet) ?? [];
-    const ti = list.findIndex((r) => r.id === targetId);
-    const dragged = list.find((r) => r.id === dragId);
-    if (ti < 0 || !dragged) return setDragId(null);
-    const prev = list[ti - 1]?.id === dragId ? list[ti - 2] : list[ti - 1];
-    const pos = prev ? (prev.position + list[ti].position) / 2 : list[ti].position - 1;
-    const ops: Op[] = [{ op: "move", sheet, key: dragId, position: pos }];
-    if (groupCol && dragged.data[groupCol.key] !== list[ti].data[groupCol.key]) ops.push({ op: "update", sheet, key: dragId, data: { [groupCol.key]: list[ti].data[groupCol.key] ?? null } });
-    void run(ops, [{ op: "move", sheet, key: dragId, position: dragged.position }, ...(ops[1] ? [{ op: "update" as const, sheet, key: dragId, data: { [groupCol!.key]: dragged.data[groupCol!.key] ?? null } }] : [])]);
-    setDragId(null);
-  }, [dragId, view.sort, idx, sheet, groupCol, run]);
+  /* ---------- reorder (priority) */
+  const canDrag = !view.sort && canWrite;
+  const priority = useMemo(() => priorityNumbers(store.rows, sheet, hasArchive ? (r) => String(r.data.archived ?? "").toUpperCase() === "Y" : undefined), [store.rows, sheet, hasArchive]);
+  const [announce, setAnnounce] = useState("");
+  const placeAt = useCallback((t: DropTarget) => {
+    // Anchor on the row above in the visible list; at the top of a filtered list or group, keep it just ahead of the row below.
+    let after = t.afterId;
+    if (!after && t.beforeId) {
+      const full = orderedRows(store.rows, sheet).filter((r) => r.id !== t.id);
+      const i = full.findIndex((r) => r.id === t.beforeId);
+      after = i > 0 ? full[i - 1].id : null;
+    }
+    const original = rowBefore(store.rows, sheet, t.id);
+    if (after === original) return;
+    const moved = store.rows.find((r) => r.id === t.id);
+    const label = (moved && entityName(idx, moved)) || moved?.row_key || "Row";
+    void run([{ op: "place", sheet, key: t.id, after }], [{ op: "place", sheet, key: t.id, after: original }], { quiet: true }).then((ok) => {
+      if (!ok) return;
+      const n = priorityNumbers(applyLocal(store, [{ op: "place", sheet, key: t.id, after }]).rows, sheet).get(t.id);
+      setAnnounce(`${label} moved to priority ${n ?? t.to + 1}`);
+    });
+  }, [store, sheet, run, idx]);
+  const drag = useRowDrag({ containerRef: gridRef, onDrop: placeAt, enabled: canDrag });
+  useEffect(() => { placeRef.current = placeAt; canDragRef.current = canDrag; }, [placeAt, canDrag]);
+  const groupIdsOf = useCallback((id: string) => groups.find((g) => g.rows.some((r) => r.id === id))?.rows.map((r) => r.id) ?? [], [groups]);
+  useEffect(() => { groupIdsRef.current = groupIdsOf; }, [groupIdsOf]);
 
   /* ---------- export */
   const exportCsv = useCallback(() => {
@@ -676,6 +712,9 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
                   checked={allIds.length > 0 && allIds.every((id) => selected.has(id))}
                   onChange={(e) => setSelected(e.target.checked ? new Set(allIds) : new Set())}
                 />
+                <Tip content={view.sort ? "Priority order (clear the column sort to see and drag rows in priority order)" : "Priority: drag rows, or Alt+arrow keys, to reorder"}>
+                  <span className="ml-2 cursor-help font-mono text-[0.625rem] font-semibold uppercase tracking-wider text-ink-3">#</span>
+                </Tip>
                 <span className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-ink-3" aria-hidden>
                   <Tip content="Notes: amber when a row has notes"><StickyNote className="h-3 w-3" /></Tip>
                   <Tip content="Documents: click a row's clip to open or upload"><Paperclip className="h-3 w-3" /></Tip>
@@ -723,13 +762,14 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
                   <BoardRow
                     key={r.id} nameKey={nameKey} row={r} def={def} columns={columns} lefts={lefts} frozenCount={frozenCount} idx={idx} groupColor={g.color}
                     computed={computed.get(r.id)!} selected={selected.has(r.id)} active={active?.rowId === r.id ? active.key : null}
-                    editingKey={editing?.rowId === r.id ? editing.key : null} dragging={dragId === r.id}
+                    editingKey={editing?.rowId === r.id ? editing.key : null} dragging={drag.dragging === r.id}
+                    priority={priority.get(r.id) ?? null} dragStyle={drag.rowStyle(r.id)} grip={drag.handleProps(r.id, groupIds)}
                     editor={editing?.rowId === r.id ? (c: ColumnDef) => <InlineEditor c={c} initial={editing.seed ?? String(r.data[c.key] ?? "")} onCommit={commitInline} onCancel={cancelInline} /> : undefined}
                     onSelect={(on) => setSelected((s) => { const n = new Set(s); if (on) n.add(r.id); else n.delete(r.id); return n; })}
                     onActivate={(key) => { setActive({ rowId: r.id, key }); gridRef.current?.focus({ preventScroll: true }); }}
                     onEdit={(key) => startEdit({ rowId: r.id, key })}
                     onOpen={() => setDrawer(r.id)}
-                    onDragStart={() => setDragId(r.id)} onDrop={() => onDrop(r.id)} canDrag={!view.sort && canWrite}
+                    canDrag={canDrag} sorted={!!view.sort}
                     onMenu={(el) => setRowMenu({ id: r.id, el })}
                     notes={noteInfo(r)} notesKey={noteKey} onNotes={(el) => setNotesFor({ id: r.id, el })}
                     docs={orgKeyOf(r) ? docCounts[orgKeyOf(r)!] ?? 0 : -1}
@@ -751,6 +791,12 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
             );
           })}
         </table>
+        {drag.indicatorTop !== null && (
+          <div aria-hidden className="pointer-events-none absolute left-0 z-40 h-0.5 rounded-full bg-oxblood" style={{ top: drag.indicatorTop - 1, width: tableWidth }}>
+            <span className="absolute -left-0.5 -top-[3px] h-2 w-2 rounded-full bg-oxblood" />
+          </div>
+        )}
+        <div role="status" aria-live="polite" className="sr-only">{announce}</div>
         {flatRows.length === 0 && groups.length === 0 && (
           <div className="grid place-items-center px-6 py-16 text-center">
             <p className="text-sm font-medium text-ink">{q || activeFilters ? "No rows match" : "No rows yet"}</p>
@@ -861,11 +907,11 @@ export function Board({ sheet, initial, canWrite, link, initialQuery = "", orgNo
 
 type NoteInfo = { text: string; gulel: number; has: boolean };
 
-const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, frozenCount, idx, computed, selected, active, editingKey, dragging, groupColor, onSelect, onActivate, onEdit, onOpen, onDragStart, onDrop, canDrag, onMenu, notes, notesKey, onNotes, docs, onDocs }: {
+const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, frozenCount, idx, computed, selected, active, editingKey, dragging, groupColor, onSelect, onActivate, onEdit, onOpen, canDrag, sorted, priority, dragStyle, grip, onMenu, notes, notesKey, onNotes, docs, onDocs }: {
   editor?: (c: ColumnDef) => React.ReactNode; nameKey: string; row: Row; def: SheetDef; columns: ColumnDef[]; lefts: number[]; frozenCount: number; idx: ReturnType<typeof buildIndex>;
   computed: { all: Record<string, CellValue>; issues: string[] }; selected: boolean; active: string | null; editingKey: string | null; dragging: boolean; groupColor: PaletteKey;
   onSelect: (on: boolean) => void; onActivate: (key: string) => void; onEdit: (key: string) => void; onOpen: () => void;
-  onDragStart: () => void; onDrop: () => void; canDrag: boolean; onMenu: (el: HTMLElement) => void;
+  canDrag: boolean; sorted: boolean; priority: number | null; dragStyle?: React.CSSProperties; grip: ReturnType<ReturnType<typeof useRowDrag>["handleProps"]>; onMenu: (el: HTMLElement) => void;
   notes: NoteInfo; notesKey: string | null; onNotes: (el: HTMLElement) => void;
   /** Documents on the row's organisation; -1 when the row has no organisation. */
   docs: number; onDocs: () => void;
@@ -874,13 +920,17 @@ const BoardRow = memo(function BoardRow({ editor, nameKey, row, columns, lefts, 
   const tint = row.color && row.color in PALETTE ? PALETTE[row.color as PaletteKey].row : "";
   const bg = selected ? "bg-sunken" : "bg-canvas";
   return (
-    <tr
-      className={cn("group", dragging && "opacity-40")} aria-selected={selected}
-      onDragOver={(e) => { if (canDrag) e.preventDefault(); }} onDrop={onDrop}
-    >
+    <tr className={cn("group", dragging && "[&>td]:!bg-raised")} aria-selected={selected} data-row-id={row.id} style={dragStyle}>
       <td className={cn("sticky left-0 z-10 border-b border-hairline/60 p-0", bg)}>
         <div className={cn("flex h-9 items-center gap-1 border-l-[3px] pl-1", tint)} style={{ borderLeftColor: `var(--color-${row.color ? colorVar(row.color as PaletteKey) : colorVar(groupColor)})` }}>
-          <span draggable={canDrag} onDragStart={onDragStart} className={cn("grid h-6 w-4 place-items-center text-ink-3 opacity-0 group-hover:opacity-100", canDrag ? "cursor-grab" : "invisible")} aria-hidden><GripVertical className="h-3.5 w-3.5" /></span>
+          <Tip content={canDrag ? "Drag to reorder, or focus and press the up and down arrows (Alt+arrow from any cell)" : sorted ? "Clear the column sort to reorder" : "View only"}>
+            <button
+              type="button" {...(canDrag ? grip : {})} onMouseDown={(e) => e.stopPropagation()} aria-disabled={!canDrag}
+              aria-label={`Priority ${priority ?? "none"}. ${canDrag ? "Drag, or press the up or down arrow, to reorder" : "Reordering unavailable"}`}
+              className={cn("grid h-6 w-4 shrink-0 touch-none place-items-center rounded text-ink-3 opacity-30 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-oxblood", canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed")}
+            ><GripVertical className="h-3.5 w-3.5" /></button>
+          </Tip>
+          <span className={cn("w-6 shrink-0 text-right font-mono text-[0.6875rem] tabular", priority ? "text-ink-2" : "text-ink-3/50")} title={priority ? `Priority ${priority}` : "Archived: no priority"}>{priority ?? "–"}</span>
           <input type="checkbox" checked={selected} onChange={(e) => onSelect(e.target.checked)} aria-label={`Select ${row.row_key ?? "row"}`} className="accent-[var(--brand-oxblood)]" />
           {computed.issues.length > 0 ? (
             <span title={computed.issues.join("\n")} className="grid h-5 w-5 place-items-center"><AlertTriangle className="h-3.5 w-3.5 text-warning" aria-label={`${computed.issues.length} data issue(s): ${computed.issues.join("; ")}`} /></span>
@@ -958,34 +1008,90 @@ function NotesPopover({ anchor, row, noteKey, info, canWrite, title, onSave, onO
 }) {
   const initial = noteKey ? String(row.data[noteKey] ?? "") : "";
   const [v, setV] = useState(initial);
+  const [ask, setAsk] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [orgNotes, setOrgNotes] = useState<NoteRow[] | null>(null);
   const done = useRef(false);
-  const close = () => { if (done.current) return; done.current = true; if (noteKey && canWrite && v !== initial) onSave(v); else onClose(); };
+  const dirty = !!noteKey && canWrite && v !== initial;
+  const orgKey = row.sheet === "Organisations" ? row.row_key : String(row.data.org_id ?? "");
+  useEffect(() => {
+    if (!orgKey || info.gulel === 0) return;
+    let live = true;
+    void orgContextAction(orgKey).then((r) => { if (live && r.ok && r.data) setOrgNotes(r.data.notes.filter((n) => !n.archived_at)); });
+    return () => { live = false; };
+  }, [orgKey, info.gulel]);
+  // Closing never throws work away: click-away, the close button and Ctrl+Enter save; Esc asks when there are changes.
+  const close = () => { if (done.current) return; done.current = true; if (dirty) onSave(v); else onClose(); };
+  const escape = () => { if (dirty) setAsk(true); else { done.current = true; onClose(); } };
   return (
-    <Floating anchor={anchor} onClose={close} width={380}>
-      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2.5">
+    <Floating anchor={anchor} onClose={() => { if (!expanded) close(); }} width={560} tall>
+      <div className="flex items-center gap-2 border-b border-hairline px-4 py-2.5">
         <StickyNote className="h-4 w-4 shrink-0 text-warning" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">Notes · {title}</span>
         <span className="font-mono text-[0.625rem] text-ink-3">{row.row_key}</span>
+        {noteKey && <Tip content="Expand"><button type="button" onClick={() => setExpanded(true)} className="grid h-7 w-7 place-items-center rounded-full text-ink-3 hover:bg-sunken/70 hover:text-oxblood" aria-label="Expand note"><Maximize2 className="h-3.5 w-3.5" /></button></Tip>}
+        <Tip content={dirty ? "Save and close" : "Close"}><button type="button" onClick={close} className="grid h-7 w-7 place-items-center rounded-full neo-raised-sm text-ink-2 hover:text-oxblood" aria-label={dirty ? "Save and close" : "Close"}><X className="h-3.5 w-3.5" /></button></Tip>
       </div>
-      {noteKey ? (
-        <div className="flex flex-col gap-1.5 px-3 pt-3">
-          <textarea
-            autoFocus value={v} onChange={(e) => setV(e.target.value)} readOnly={!canWrite} aria-label="Notes" placeholder="Plain text. Saved to the board and the Google Sheet."
-            className="min-h-36 resize-y rounded-neo neo-inset-sm px-3 py-2 text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3"
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); close(); }
-              else if (e.key === "Escape") { e.preventDefault(); done.current = true; onClose(); }
-            }}
-          />
-          <span className="text-[0.6875rem] text-ink-3">Ctrl+Enter or click away to save · Esc to discard</span>
-        </div>
-      ) : <p className="px-3 pt-3 text-xs text-ink-3">This sheet has no notes column; notes live on the organisation in gulel.</p>}
-      <div className="mt-2 flex items-center justify-between gap-2 border-t border-hairline px-3 py-2">
-        <span className="text-xs text-ink-2">{info.gulel ? `${info.gulel} more note${info.gulel > 1 ? "s" : ""} in gulel` : "Notes, files and history"}</span>
-        <button type="button" onClick={() => { done.current = true; if (noteKey && canWrite && v !== initial) onSave(v); onOpen(); }} className="rounded-full px-2.5 py-1 text-xs font-medium text-oxblood hover:bg-sunken/70">Open item</button>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {noteKey ? (
+          <div className="flex flex-col gap-1.5 px-4 pt-3">
+            <span className="eyebrow">Row note · syncs to the Google Sheet</span>
+            <AutoTextarea
+              autoFocus value={v} onChange={setV} readOnly={!canWrite} placeholder="Plain text. Saved to the board and the Google Sheet." maxRows={18}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); close(); }
+                else if (e.key === "Escape") { e.preventDefault(); escape(); }
+              }}
+            />
+            {ask ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-neo-sm bg-warning/10 px-3 py-2 text-xs text-ink-2">
+                <span className="mr-auto">You have unsaved changes.</span>
+                <Button size="sm" className="h-7" onClick={() => setAsk(false)}>Keep editing</Button>
+                <Button size="sm" className="h-7" variant="danger" onClick={() => { done.current = true; onClose(); }}>Discard</Button>
+                <Button size="sm" className="h-7" variant="primary" onClick={close}>Save</Button>
+              </div>
+            ) : <span className="text-[0.6875rem] text-ink-3">{dirty ? "Unsaved: Ctrl+Enter, the close button or clicking away saves. Esc asks first." : "Ctrl+Enter or click away to save."}</span>}
+          </div>
+        ) : <p className="px-4 pt-3 text-xs text-ink-3">This sheet has no notes column; notes live on the organisation in gulel.</p>}
+        {info.gulel > 0 && (
+          <div className="flex flex-col gap-2 px-4 pt-4">
+            <span className="eyebrow">Organisation notes in gulel ({info.gulel})</span>
+            {orgNotes === null ? <p className="text-xs text-ink-3">Loading…</p> : orgNotes.slice(0, 3).map((n) => (
+              <div key={n.id} className="rounded-neo-sm neo-inset-sm px-3 py-2">
+                <p className="mb-1 text-[0.625rem] text-ink-3">{n.author ?? "Team"} · {new Date(n.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                <RichView body={n.body} clampHeight={140} title={`${title}: note by ${n.author ?? "Team"}`} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-hairline px-4 py-2">
+        <span className="text-xs text-ink-2">{info.gulel > 3 ? `${info.gulel - 3} more in gulel` : "Notes, files and history"}</span>
+        <button type="button" onClick={() => { done.current = true; if (dirty) onSave(v); onOpen(); }} className="rounded-full px-2.5 py-1 text-xs font-medium text-oxblood hover:bg-sunken/70">Open item{orgKey ? " to add rich notes" : ""}</button>
+      </div>
+      <Modal open={expanded} onOpenChange={(o) => { if (!o) setExpanded(false); }} title={`Notes · ${title}`} description="Row note. Plain text, synced to the Google Sheet." wide
+        footer={<Button variant="primary" onClick={() => setExpanded(false)}>Done</Button>}>
+        <AutoTextarea autoFocus value={v} onChange={setV} readOnly={!canWrite} placeholder="Plain text. Saved to the board and the Google Sheet." minRows={14} maxRows={40}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setExpanded(false); } }} />
+      </Modal>
     </Floating>
+  );
+}
+
+/** A textarea that grows with its content (between minRows and maxRows), then scrolls. */
+function AutoTextarea({ value, onChange, minRows = 6, maxRows = 18, ...rest }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value"> & { value: string; onChange: (v: string) => void; minRows?: number; maxRows?: number }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 22;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(maxRows * line + 18, Math.max(minRows * line + 18, el.scrollHeight + 2))}px`;
+  }, [value, minRows, maxRows]);
+  return (
+    <textarea ref={ref} value={value} onChange={(e) => onChange(e.target.value)} {...rest}
+      className="w-full resize-none rounded-neo neo-inset-sm px-3.5 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3 focus-visible:ring-2 focus-visible:ring-oxblood/25" />
   );
 }
 

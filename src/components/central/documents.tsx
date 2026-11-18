@@ -2,8 +2,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  Download, ExternalLink, FileArchive, FileImage, FileSpreadsheet, FileText, Loader2, Paperclip, Tag, Trash2, Upload, X,
+  ChevronDown, ChevronUp, Download, ExternalLink, FileArchive, FileImage, FileSpreadsheet, FileText, Loader2, NotebookPen, Paperclip, Tag, Trash2, Upload, X,
 } from "lucide-react";
+import { RichEditor, RichView } from "@/components/notes/rich-editor";
+import { richToText } from "@/lib/notes/rich";
 import { toast } from "sonner";
 import { Button } from "@/components/neo/button";
 import { Tip } from "@/components/neo/controls";
@@ -138,10 +140,16 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
 
   const patch = async (f: FileRow, p: { tags?: string[]; notes?: string | null }) => {
     const before = files;
-    setFiles(files.map((x) => (x.id === f.id ? { ...x, ...p } : x)));
+    setBundle((b) => (b ? { ...b, files: b.files.map((x) => (x.id === f.id ? { ...x, ...p } : x)) } : b));
     const r = await updateDocAction(f.id, p);
-    if (!r.ok) { setFiles(before); toast.error(r.error); }
+    if (!r.ok) { setFiles(before); toast.error(r.error); return false; }
+    return true;
   };
+  // Unsaved document notes are saved (never dropped) when you switch document or close the window.
+  const flushNotes = useRef<() => Promise<void>>(async () => {});
+  const [notesOpen, setNotesOpen] = useState(true);
+  const view = async (id: string, openNotes = false) => { await flushNotes.current(); setViewing(id); if (openNotes) setNotesOpen(true); };
+  const closeAll = async () => { await flushNotes.current(); onClose(); };
   const remove = async (f: FileRow) => {
     const r = await deleteDocAction(f.id);
     if (!r.ok) return toast.error(r.error);
@@ -192,7 +200,7 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
   const current = files.find((f) => f.id === viewing) ?? null;
 
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
+    <Dialog.Root open onOpenChange={(o) => { if (!o) void closeAll(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
@@ -240,7 +248,7 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
                       <ul className="flex flex-col gap-2">
                         {g.files.map((f) => (
                           <DocCard key={f.id} f={f} active={viewing === f.id} canWrite={canWrite} suggestions={allTags}
-                            onView={() => setViewing(f.id)} onPatch={(p) => void patch(f, p)} onDelete={() => void remove(f)} />
+                            onView={(notes) => void view(f.id, notes)} onPatch={(p) => void patch(f, p)} onDelete={() => void remove(f)} />
                         ))}
                       </ul>
                     </section>
@@ -249,6 +257,8 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
               </div>
               {/* viewer */}
               <div className="flex min-h-[50dvh] min-w-0 flex-1 flex-col bg-sunken/40">
+                {current && <DocNotesPanel key={current.id} f={current} canWrite={canWrite} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)}
+                  register={(fn) => { flushNotes.current = fn; }} onSave={(notes) => patch(current, { notes })} />}
                 {current ? <Viewer key={current.id} f={current} /> : (
                   <div className="grid flex-1 place-items-center p-8 text-center text-sm text-ink-3">
                     <p>Select a document to preview it here.<br />PDFs, Word (.docx), images and text open inside gulel; anything else opens in a new tab.</p>
@@ -264,15 +274,14 @@ export function DocumentsDialog({ orgKey, title, uploadNow, canWrite, onClose, o
 }
 
 function DocCard({ f, active, canWrite, suggestions, onView, onPatch, onDelete }: {
-  f: FileRow; active: boolean; canWrite: boolean; suggestions: string[]; onView: () => void; onPatch: (p: { tags?: string[]; notes?: string | null }) => void; onDelete: () => void;
+  f: FileRow; active: boolean; canWrite: boolean; suggestions: string[]; onView: (openNotes?: boolean) => void; onPatch: (p: { tags?: string[]; notes?: string | null }) => void; onDelete: () => void;
 }) {
-  const [notes, setNotes] = useState(f.notes ?? "");
   const [confirm, setConfirm] = useState(false);
-  useEffect(() => setNotes(f.notes ?? ""), [f.notes]);
+  const preview = f.notes ? richToText(f.notes).replace(/\s+/g, " ").trim() : "";
   return (
     <li className={cn("flex flex-col gap-2 rounded-neo-sm bg-canvas p-3 neo-raised-sm", active && "ring-2 ring-oxblood/40")}>
       <div className="flex items-start gap-2">
-        <button type="button" onClick={onView} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+        <button type="button" onClick={() => onView()} className="flex min-w-0 flex-1 items-start gap-2 text-left">
           <FileIcon f={f} className="mt-0.5 h-4 w-4 shrink-0 text-oxblood" />
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium text-ink hover:text-oxblood">{f.name}</span>
@@ -292,13 +301,65 @@ function DocCard({ f, active, canWrite, suggestions, onView, onPatch, onDelete }
       {canWrite ? <TagEditor tags={f.tags} suggestions={suggestions} onChange={(tags) => onPatch({ tags })} placeholder="Add a tag" /> : f.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">{f.tags.map((t) => <span key={t} className="rounded-full bg-oxblood/10 px-2 py-0.5 text-[0.6875rem] text-oxblood">{t}</span>)}</div>
       )}
-      <textarea
-        value={notes} readOnly={!canWrite} onChange={(e) => setNotes(e.target.value)} rows={notes ? 3 : 1}
-        onBlur={() => { if (canWrite && notes !== (f.notes ?? "")) onPatch({ notes: notes.trim() ? notes : null }); }}
-        placeholder={canWrite ? "Notes about this document" : "No notes"} aria-label={`Notes for ${f.name}`}
-        className="w-full resize-y rounded-neo-sm neo-inset-sm px-2.5 py-1.5 text-xs leading-relaxed text-ink outline-none placeholder:text-ink-3"
-      />
+      {preview ? (
+        <button type="button" onClick={() => onView(true)} className="flex items-start gap-1.5 rounded-neo-sm neo-inset-sm px-2.5 py-1.5 text-left text-xs text-ink-2 hover:text-ink">
+          <NotebookPen className="mt-px h-3.5 w-3.5 shrink-0 text-warning" aria-hidden /><span className="line-clamp-2">{preview}</span>
+        </button>
+      ) : canWrite && (
+        <button type="button" onClick={() => onView(true)} className="flex items-center gap-1.5 self-start rounded-full px-2 py-0.5 text-[0.6875rem] text-ink-3 hover:bg-sunken/70 hover:text-oxblood">
+          <NotebookPen className="h-3.5 w-3.5" aria-hidden />Add notes
+        </button>
+      )}
     </li>
+  );
+}
+
+/**
+ * Notes for the document being viewed, beside it and wide enough to read: rich text, grows with the note, expandable.
+ * Save explicitly, or switch document / close the window and it saves for you; Discard reverts.
+ */
+function DocNotesPanel({ f, canWrite, open, onToggle, register, onSave }: {
+  f: FileRow; canWrite: boolean; open: boolean; onToggle: () => void; register: (flush: () => Promise<void>) => void; onSave: (notes: string | null) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState(f.notes ?? "");
+  const [editorKey, setEditorKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const saved = useRef(f.notes ?? "");
+  const dirty = canWrite && draft !== saved.current && !(richToText(draft) === "" && richToText(saved.current) === "");
+  const save = useCallback(async () => {
+    if (!dirty) return;
+    setSaving(true);
+    const value = richToText(draft) ? draft : null;
+    if (await onSave(value)) { saved.current = draft; toast.success(`Notes saved for ${f.name}`); }
+    setSaving(false);
+  }, [dirty, draft, onSave, f.name]);
+  useEffect(() => { register(save); }, [register, save]);
+  useEffect(() => () => register(async () => {}), [register]);
+  const has = !!richToText(f.notes ?? "");
+  return (
+    <section aria-label={`Notes for ${f.name}`} className="border-b border-hairline bg-canvas">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-2 text-left">
+        <NotebookPen className={cn("h-4 w-4", has ? "text-warning" : "text-ink-3")} aria-hidden />
+        <span className="text-xs font-semibold text-ink">Notes</span>
+        <span className="min-w-0 flex-1 truncate text-[0.6875rem] text-ink-3">{dirty ? "Unsaved changes" : has ? richToText(f.notes ?? "").replace(/\s+/g, " ").slice(0, 90) : canWrite ? "None yet. Add context: what it is, what to do with it" : "No notes"}</span>
+        {open ? <ChevronUp className="h-4 w-4 text-ink-3" aria-hidden /> : <ChevronDown className="h-4 w-4 text-ink-3" aria-hidden />}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 px-4 pb-3">
+          {canWrite ? (
+            <>
+              <RichEditor key={editorKey} value={draft} onChange={setDraft} onSubmit={() => void save()} label={`Notes for ${f.name}`} expandTitle={`Notes · ${f.name}`}
+                placeholder="What this document is, what it belongs to, what to do with it…" minHeight={88} maxHeight="min(38vh, 420px)" compact />
+              <div className="flex items-center justify-end gap-2">
+                <span className="mr-auto text-[0.6875rem] text-ink-3">{dirty ? "Saved automatically if you switch document or close." : "Ctrl+Enter to save"}</span>
+                {dirty && <Button size="sm" variant="ghost" onClick={() => { setDraft(saved.current); setEditorKey((k) => k + 1); }}>Discard</Button>}
+                <Button size="sm" variant="primary" onClick={() => void save()} loading={saving} disabled={!dirty}>Save notes</Button>
+              </div>
+            </>
+          ) : has ? <div className="max-h-[38vh] overflow-y-auto rounded-neo-sm neo-inset-sm px-4 py-3"><RichView body={f.notes ?? ""} title={`Notes · ${f.name}`} /></div> : null}
+        </div>
+      )}
+    </section>
   );
 }
 

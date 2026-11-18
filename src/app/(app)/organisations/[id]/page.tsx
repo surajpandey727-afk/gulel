@@ -22,6 +22,9 @@ import { OrgNotes } from "@/components/orgs/org-notes";
 import { OrgFiles } from "@/components/orgs/org-files";
 import { listFiles, listNotes, repoNotesFor } from "@/lib/orgs/records";
 import { AddToCentralButton, ArchiveOrgButton, DeleteOrgButton } from "./record-actions";
+import { SectionResearch } from "./section-research";
+import { latestRuns } from "@/lib/research/section";
+import { richToText } from "@/lib/notes/rich";
 import { AddContactButton, AddEvidenceButton, FindPeopleButton, OverrideButton, PrepareOutreachButton, RediscoverButton, RiskReview, RunQualificationButton, SuppressButton } from "./dossier-actions";
 
 type Ev = { id: string; claim_field: string; claim_text: string; fact_type: keyof typeof FACT_TYPE_LABEL; source_name: string; source_url: string | null; published_at: string | null; retrieved_at: string; excerpt: string | null; confidence: number; is_adverse: boolean; value_numeric: number | null; value_currency: string | null; value_as_of: string | null };
@@ -53,6 +56,9 @@ function EvidenceList({ items, empty }: { items: Ev[]; empty: string }) {
   );
 }
 
+// Section research (notes first, then a targeted web search) can take a minute.
+export const maxDuration = 300;
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
@@ -80,11 +86,12 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
     supabase.from("audit_logs").select("id, action, actor_type, created_at, metadata").eq("entity_id", id).order("created_at", { ascending: false }).limit(30),
   ]);
   if (!org) notFound();
-  const [notes, files, { data: liCh }, repoNotes] = await Promise.all([
+  const [notes, files, { data: liCh }, repoNotes, runs] = await Promise.all([
     listNotes(supabase, ws, { orgIds: [id] }),
     listFiles(supabase, ws, [id]),
     supabase.from("contact_channels").select("value").eq("organisation_id", id).eq("channel", "linkedin").is("contact_id", null).limit(1).maybeSingle(),
     repoNotesFor(supabase, ws, org.cr_key),
+    latestRuns(supabase, ws, id),
   ]);
   const linkedin = liCh?.value ?? null;
   const canWrite = session.role !== "viewer";
@@ -102,14 +109,15 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
   const tabs = [
     { value: "summary", label: "Summary" },
     { value: "financials", label: "Financials", count: (financials ?? []).length },
-    { value: "brand", label: "Brand & commercial", count: byGroup("brand.").length + byGroup("commercial.").length },
+    { value: "brand", label: "Brand", count: byGroup("brand.").length },
+    { value: "commercial", label: "Commercial", count: byGroup("commercial.").length },
     { value: "signals", label: "Signals", count: byGroup("signal.").length },
     { value: "news", label: "News", count: newsTop.length },
     { value: "people", label: "People", count: (people ?? []).length },
     { value: "outreach", label: "Outreach", count: (drafts ?? []).length },
     { value: "timeline", label: "Timeline" },
     { value: "evidence", label: "Evidence", count: ev.length },
-    { value: "notes", label: "Notes", count: notes.length + repoNotes.length },
+    { value: "notes", label: "Notes", count: notes.filter((n) => !n.archived_at).length + repoNotes.length },
     { value: "files", label: "Files", count: files.length },
   ];
 
@@ -225,6 +233,7 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
 
         <DossierPanel name="financials">
           <Panel title="Financial standing" eyebrow={`Values in original currency · ${currency} market`}>
+            <SectionResearch organisationId={id} section="financials" last={runs.financials ?? null} canWrite={canWrite} />
             {(financials ?? []).length ? (
               <Table>
                 <thead><tr><Th>Metric</Th><Th>Period</Th><Th className="text-right">Amount</Th><Th>Fact type</Th><Th>Source</Th></tr></thead>
@@ -233,12 +242,33 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
                     <Td><Badge tone={f.fact_type === "reported_fact" || f.fact_type === "dated_filing" ? "neutral" : "warning"} icon={false}>{FACT_TYPE_LABEL[f.fact_type as keyof typeof FACT_TYPE_LABEL]}</Badge></Td>
                     <Td className="text-xs">{e ? (e.source_url ? <a className="underline-offset-2 hover:underline" href={e.source_url} target="_blank" rel="noreferrer">{e.source_name}</a> : e.source_name) : "—"}</Td></Tr>); })}</tbody>
               </Table>
-            ) : <EmptyState title="No financial evidence" body="Estimates are stored as third-party estimates and never shown as verified facts. Companies House and MCA adapters arrive in Phase 2." />}
+            ) : <EmptyState title="No financial figures yet" body="Use Retry research above: it reads this organisation's notes, documents and earlier research first, then searches filings and reporting. Estimates are labelled as third-party estimates, never as verified facts." />}
+            {(() => {
+              const linked = new Set((financials ?? []).map((f) => f.evidence_id).filter(Boolean));
+              const other = byGroup("financials.").filter((e) => !linked.has(e.id));
+              return other.length ? <div className="mt-5"><p className="eyebrow mb-2">Other financial findings</p><EvidenceList items={other} empty="" /></div> : null;
+            })()}
           </Panel>
         </DossierPanel>
 
-        <DossierPanel name="brand"><Panel title="Brand & commercial analysis"><EvidenceList items={byGroup("brand.").concat(byGroup("commercial."))} empty="No brand or commercial observations yet" /></Panel></DossierPanel>
-        <DossierPanel name="signals"><Panel title="Buying signals" eyebrow="Signals carry strength and uncertainty — not proof of buying"><EvidenceList items={byGroup("signal.")} empty="No signals recorded" /></Panel></DossierPanel>
+        <DossierPanel name="brand">
+          <Panel title="Brand" eyebrow="Positioning, architecture and prior agencies">
+            <SectionResearch organisationId={id} section="brand" last={runs.brand ?? null} canWrite={canWrite} />
+            <EvidenceList items={byGroup("brand.")} empty="No brand observations yet" />
+          </Panel>
+        </DossierPanel>
+        <DossierPanel name="commercial">
+          <Panel title="Commercial" eyebrow="Channels, customers, pricing and competition">
+            <SectionResearch organisationId={id} section="commercial" last={runs.commercial ?? null} canWrite={canWrite} />
+            <EvidenceList items={byGroup("commercial.")} empty="No commercial observations yet" />
+          </Panel>
+        </DossierPanel>
+        <DossierPanel name="signals">
+          <Panel title="Buying signals" eyebrow="Signals carry strength and uncertainty, not proof of buying">
+            <SectionResearch organisationId={id} section="signals" last={runs.signals ?? null} canWrite={canWrite} />
+            <EvidenceList items={byGroup("signal.")} empty="No signals recorded" />
+          </Panel>
+        </DossierPanel>
 
         <DossierPanel name="news">
           <Panel title="Latest relevant news" eyebrow={`${newsTop.length} of up to 3 · independent sources prioritised`} actions={<NewsEnrich organisationId={id} orgName={org.trading_name} orgWebsite={org.website} orgMarket={org.primary_market} />}>
@@ -323,6 +353,8 @@ export default async function DossierPage({ params }: { params: Promise<{ id: st
             <ol className="relative flex flex-col gap-4 border-l border-hairline pl-5">
               {[
                 { at: org.created_at, text: "Organisation record created", kind: "record" },
+                ...notes.map((n) => ({ at: n.created_at, text: `Note by ${n.author ?? "Team"}: ${richToText(n.body).replace(/\s+/g, " ").slice(0, 160)}${richToText(n.body).length > 160 ? "…" : ""}`, kind: "note" })),
+                ...Object.values(runs).filter((x) => x && x.status !== "running").map((x) => ({ at: x!.started_at, text: `${x!.section[0].toUpperCase()}${x!.section.slice(1)} research: ${x!.message ?? x!.status}`, kind: "research" })),
                 ...ev.map((e) => ({ at: e.retrieved_at, text: `Evidence added: ${label(e.claim_field)} — ${e.claim_text.slice(0, 90)}`, kind: "evidence" })),
                 ...(quals ?? []).map((q) => ({ at: q.created_at, text: `Qualified v${q.version_no}: ${Math.round(Number(q.score))} (${BAND_LABEL[q.band]})`, kind: "qualification" })),
                 ...(strategies ?? []).map((s) => ({ at: s.created_at, text: `Governance: ${DECISION_LABEL[s.decision as keyof typeof DECISION_LABEL]}`, kind: "governance" })),

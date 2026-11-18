@@ -40,8 +40,10 @@ const same = (a: RowData, b: RowData) => {
 export async function mergeParsed(workspaceId: string, parsed: ParsedWorkbook, via: "sheet" | "import", actorId: string | null, opts: { deleteMissing: boolean }) {
   const admin = createAdminClient();
   const store = await loadStore(admin, workspaceId);
-  const { data: pending } = await admin.from("cr_changes").select("row_id").eq("workspace_id", workspaceId).is("pushed_at", null).neq("via", "sheet");
+  const { data: pending } = await admin.from("cr_changes").select("row_id, sheet, action").eq("workspace_id", workspaceId).is("pushed_at", null).neq("via", "sheet");
   const pendingIds = new Set((pending ?? []).map((p) => p.row_id));
+  // A reorder made in gulel renumbers the whole sheet; until it is pushed, the Sheet's old row order must not win.
+  const reordered = new Set((pending ?? []).filter((p) => p.action === "move").map((p) => p.sheet as string));
   const live = new Map(store.rows.map((r) => [`${r.sheet}\u0000${r.row_key ?? `#${r.position}`}`, r]));
   const seen = new Set<string>();
   const inserts: Record<string, unknown>[] = [];
@@ -60,8 +62,9 @@ export async function mergeParsed(workspaceId: string, parsed: ParsedWorkbook, v
       continue;
     }
     if (pendingIds.has(cur.id)) { skipped++; continue; }
-    if (!same(cur.data, p.data) || cur.position !== p.position) {
-      await admin.from("cr_rows").update({ data: p.data, position: p.position, updated_via: via, updated_by: actorId }).eq("id", cur.id);
+    const position = reordered.has(p.sheet) ? cur.position : p.position;
+    if (!same(cur.data, p.data) || cur.position !== position) {
+      await admin.from("cr_rows").update({ data: p.data, position, updated_via: via, updated_by: actorId }).eq("id", cur.id);
       if (!same(cur.data, p.data)) {
         updated++;
         changes.push({ workspace_id: workspaceId, sheet: p.sheet, row_id: cur.id, row_key: p.row_key, action: "update", before: cur.data, after: p.data, via, actor_id: actorId, pushed_at: via === "sheet" ? new Date().toISOString() : null });

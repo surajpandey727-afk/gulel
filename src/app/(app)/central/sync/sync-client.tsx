@@ -158,7 +158,7 @@ export function ChangeLog({ changes, me }: { changes: Change[]; me: string }) {
                 <tr key={c.id} className="border-b border-hairline/50 align-top">
                   <td className="whitespace-nowrap py-2 pr-3 text-ink-2">{when(c.created_at)}</td>
                   <td className="py-2 pr-3"><span className="text-ink-3">{c.sheet.replace(/_/g, " ")}</span> <span className="font-mono text-ink">{c.row_key ?? ""}</span></td>
-                  <td className="py-2 pr-3 text-ink"><span className="capitalize">{c.action}</span>{fields.length ? <span className="text-ink-3">: {fields.slice(0, 4).join(", ")}{fields.length > 4 ? "…" : ""}</span> : null}</td>
+                  <td className="py-2 pr-3 text-ink"><span className="capitalize">{c.action === "move" ? "Reordered" : c.action}</span>{fields.length ? <span className="text-ink-3">: {fields.slice(0, 4).join(", ")}{fields.length > 4 ? "…" : ""}</span> : null}</td>
                   <td className="py-2 pr-3 text-ink-2">{VIA[c.via] ?? c.via}{c.actor_id === me ? " · you" : ""}{c.note ? <span className="block max-w-[220px] truncate text-ink-3" title={c.note}>{c.note}</span> : null}</td>
                   <td className="py-2">{c.via === "sheet" ? <span className="text-ink-3">from sheet</span> : c.pushed_at ? <span className="text-oxblood">synced {when(c.pushed_at)}</span> : c.push_error ? <span className="text-danger" title={c.push_error}>failed</span> : <span className="text-warning">pending</span>}</td>
                 </tr>

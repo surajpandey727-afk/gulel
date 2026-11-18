@@ -86,26 +86,33 @@ export function CellView({ c, value, row, idx, isOpen }: { c: ColumnDef; value: 
 
 /* ---------------------------------------------------------------- floating panel */
 
-export function Floating({ anchor, onClose, children, width = 280 }: { anchor: HTMLElement | null; onClose: () => void; children: React.ReactNode; width?: number }) {
+export function Floating({ anchor, onClose, children, width = 280, tall }: { anchor: HTMLElement | null; onClose: () => void; children: React.ReactNode; width?: number; /** Allow most of the viewport height (notes). */ tall?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; maxH: number } | null>(null);
   useLayoutEffect(() => {
     if (!anchor) return;
     const place = () => {
       const r = anchor.getBoundingClientRect();
+      const cap = tall ? Math.min(680, window.innerHeight - 24) : 360;
       const below = window.innerHeight - r.bottom;
-      const top = below > 260 ? r.bottom + 4 : Math.max(8, r.top - Math.min(360, r.top - 8) - 4);
-      setPos({ top, left: Math.min(Math.max(8, r.left), window.innerWidth - width - 8), maxH: below > 260 ? Math.min(360, below - 12) : Math.min(360, r.top - 12) });
+      const fitsBelow = below > (tall ? Math.min(cap, 420) : 260);
+      const maxH = fitsBelow ? Math.min(cap, below - 12) : Math.min(cap, r.top - 12);
+      const top = fitsBelow ? r.bottom + 4 : Math.max(8, r.top - maxH - 4);
+      setPos({ top, left: Math.min(Math.max(8, r.left), window.innerWidth - width - 8), maxH });
     };
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
-  }, [anchor, width]);
+  }, [anchor, width, tall]);
   useEffect(() => {
-    const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node) && !anchor?.contains(e.target as Node)) onClose(); };
+    // A dialog opened from inside this panel (expand, viewer) owns the clicks and Esc until it closes.
+    const modalOpen = () => [...document.querySelectorAll('[role="dialog"][data-state="open"]')].some((d) => d !== ref.current);
+    const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node) && !anchor?.contains(e.target as Node) && !modalOpen()) onClose(); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !modalOpen()) onClose(); };
     document.addEventListener("mousedown", down);
-    return () => document.removeEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
   }, [anchor, onClose]);
   if (!pos) return null;
   return createPortal(

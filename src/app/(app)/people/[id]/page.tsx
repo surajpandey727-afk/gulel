@@ -1,3 +1,4 @@
+import { richToText } from "@/lib/notes/rich";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -35,7 +36,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     for (const m of (cv.conversation_messages as Array<{ direction: string; source: string; occurred_at: string; snippet: string | null }>)) ev.push({ at: m.occurred_at, label: `${m.direction === "outbound" ? "Sent" : "Reply"}: ${(m.snippet ?? "").slice(0, 80)}`, origin: m.source === "manual_log" ? `${cv.channel} (manual)` : cv.channel });
     for (const e of (cv.conversation_events as Array<{ to_status: string; created_at: string }>)) ev.push({ at: e.created_at, label: `Stage → ${e.to_status.replace(/_/g, " ")}`, origin: "pipeline" });
   }
-  for (const n of notes ?? []) ev.push({ at: n.created_at, label: `Note: ${n.body.slice(0, 80)}`, origin: "internal" });
+  for (const n of notes ?? []) ev.push({ at: n.created_at, label: `Note: ${richToText(n.body).slice(0, 80)}`, origin: "internal" });
   for (const m of manual ?? []) ev.push({ at: m.occurred_at, label: `${m.event.replace(/_/g, " ")}`, origin: `${m.channel} (manual)` });
   ev.sort((a, b) => +new Date(b.at) - +new Date(a.at));
   const orgs = c.contact_organisations as unknown as Array<{ title: string | null; buyer_relevance: number | null; organisations: { id: string; trading_name: string } }>;

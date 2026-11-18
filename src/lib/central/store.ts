@@ -9,8 +9,10 @@ import type { CellValue, EntityTarget, Op, RefItem, Row, RowData, Store } from "
 type Via = "ui" | "agent" | "sheet" | "api" | "import" | "system";
 export interface Ctx { db: SupabaseClient; workspaceId: string; actorId: string | null; via: Via; note?: string }
 
+import { orderedRows, placeRow } from "./order";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OP_KINDS = new Set<string>(["insert", "update", "delete", "restore", "color", "move"]);
+const OP_KINDS = new Set<string>(["insert", "update", "delete", "restore", "color", "move", "place"]);
 
 export async function loadStore(db: SupabaseClient, workspaceId: string, opts: { includeDeleted?: boolean } = {}): Promise<Store> {
   const rows: Row[] = [];
@@ -27,7 +29,7 @@ export async function loadStore(db: SupabaseClient, workspaceId: string, opts: {
   return { rows, refs: (refs ?? []) as RefItem[] };
 }
 
-export interface OpResult { ok: boolean; op: Op["op"]; sheet: string; key: string | null; error?: string; warnings?: string[]; rowId?: string }
+export interface OpResult { ok: boolean; op: Op["op"]; sheet: string; key: string | null; error?: string; warnings?: string[]; rowId?: string; /** Other rows this op changed (renumbered by a reorder). */ touched?: string[] }
 export interface ApplyResult { ok: boolean; results: OpResult[]; error?: string }
 
 function findRow(store: Store, sheet: string, key: string): Row | undefined {
@@ -105,7 +107,7 @@ export async function applyOps(ctx: Ctx, ops: Op[], opts: { dryRun?: boolean; fo
   const store = await loadStore(ctx.db, ctx.workspaceId, { includeDeleted: true });
   const work: Store = { rows: store.rows.map((r) => ({ ...r, data: { ...r.data } })), refs: store.refs };
   const results: OpResult[] = [];
-  const writes: { kind: "insert" | "update"; row: Row; before: RowData | null; action: "insert" | "update" | "delete" | "restore"; patch: Record<string, unknown> }[] = [];
+  const writes: { kind: "insert" | "update"; row: Row; before: RowData | null; action: "insert" | "update" | "delete" | "restore" | "move"; patch: Record<string, unknown>; after?: RowData | null }[] = [];
 
   for (const raw of ops) {
     const op = raw as Op;
@@ -180,6 +182,22 @@ export async function applyOps(ctx: Ctx, ops: Op[], opts: { dryRun?: boolean; fo
       row.position = op.position;
       writes.push({ kind: "update", row, before: null, action: "update", patch: { position: op.position } });
       results.push({ ok: true, op: "move", sheet: op.sheet, key: row.row_key, rowId: row.id });
+    } else if (op.op === "place") {
+      const anchor = op.after ? findRow(work, op.sheet, op.after) : null;
+      if (op.after && !anchor) { results.push({ ok: false, op: "place", sheet: op.sheet, key: row.row_key, error: `No row "${op.after}" in ${op.sheet} to place after` }); continue; }
+      const from = orderedRows(work.rows, op.sheet).findIndex((r) => r.id === row.id) + 1;
+      const moves = placeRow(work.rows, op.sheet, row.id, anchor?.id ?? null);
+      const touched: string[] = [];
+      for (const [id, position] of moves) {
+        const r = work.rows.find((x) => x.id === id)!;
+        r.position = position;
+        writes.push({ kind: "update", row: r, before: null, action: "update", patch: { position } });
+        if (id !== row.id) touched.push(id);
+      }
+      const to = orderedRows(work.rows, op.sheet).findIndex((r) => r.id === row.id) + 1;
+      // Logged as a pending change so a Google Sheet pull keeps the new order until it has been pushed.
+      if (moves.size) writes.push({ kind: "update", row, before: { priority: from }, action: "move", patch: {}, after: { priority: to } });
+      results.push({ ok: true, op: "place", sheet: op.sheet, key: row.row_key, rowId: row.id, touched });
     }
   }
 
@@ -196,14 +214,15 @@ export async function applyOps(ctx: Ctx, ops: Op[], opts: { dryRun?: boolean; fo
     if (error) return { ok: false, results, error: friendlyDbError(error.message) };
   }
   // Updates run sequentially; soft-deletes go first so a freed key can be reused in the same batch.
-  const updates = writes.filter((w) => w.kind === "update").sort((a, b) => (a.action === "delete" ? -1 : 0) - (b.action === "delete" ? -1 : 0));
+  const updates = writes.filter((w) => w.kind === "update" && Object.keys(w.patch).length).sort((a, b) => (a.action === "delete" ? -1 : 0) - (b.action === "delete" ? -1 : 0));
   for (const w of updates) {
     const { error } = await ctx.db.from("cr_rows").update({ ...w.patch, ...meta }).eq("id", w.row.id).eq("workspace_id", ctx.workspaceId);
     if (error) return { ok: false, results, error: friendlyDbError(error.message) };
   }
   const changes = writes.filter((w) => w.action !== "update" || "data" in w.patch).map((w) => ({
     workspace_id: ctx.workspaceId, sheet: w.row.sheet, row_id: w.row.id, row_key: w.row.row_key, action: w.action,
-    before: w.before, after: w.action === "delete" ? null : w.row.data, actor_id: ctx.actorId, via: ctx.via, note: ctx.note ?? null,
+    before: w.before, after: w.after !== undefined ? w.after : w.action === "delete" ? null : w.row.data, actor_id: ctx.actorId, via: ctx.via,
+    note: ctx.note ?? (w.action === "move" ? `Priority ${String(w.before?.priority)} → ${String(w.after?.priority)}` : null),
   }));
   if (changes.length) await ctx.db.from("cr_changes").insert(changes);
   return { ok: true, results, store: work };

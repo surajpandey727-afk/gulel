@@ -3,13 +3,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normaliseCompanyName } from "@/lib/import/normalise";
 import { pushOrgToCentral } from "@/lib/central/bridge";
+import { isRich, normaliseRichInput, richToText } from "@/lib/notes/rich";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = SupabaseClient<any>;
 export type NoteVia = "ui" | "agent" | "api" | "inbox";
 export type FileVia = "ui" | "agent" | "api";
 
-export interface NoteRow { id: string; body: string; organisation_id: string | null; contact_id: string | null; via: string; created_at: string; updated_at: string; created_by: string | null; author: string | null }
+export interface NoteRow { id: string; body: string; organisation_id: string | null; contact_id: string | null; via: string; created_at: string; updated_at: string; created_by: string | null; author: string | null; archived_at: string | null }
 export interface FileRow { id: string; name: string; size_bytes: number; mime_type: string | null; via: string; uploaded_label: string | null; created_at: string; organisation_id: string; tags: string[]; notes: string | null }
 
 export const BUCKET = "org-files";
@@ -28,12 +29,13 @@ export async function resolveOrg(db: Db, workspaceId: string, ref: string): Prom
 }
 
 // ---------------------------------------------------------------- notes
+/** Notes for organisations / a person. Archived notes are included (flagged) so the UI can show them on request. */
 export async function listNotes(db: Db, workspaceId: string, where: { orgIds?: string[]; contactId?: string }): Promise<NoteRow[]> {
   const ors: string[] = [];
   if (where.orgIds?.length) ors.push(`organisation_id.in.(${where.orgIds.join(",")})`);
   if (where.contactId) ors.push(`contact_id.eq.${where.contactId}`);
   if (!ors.length) return [];
-  const { data, error } = await db.from("notes").select("id, body, organisation_id, contact_id, via, created_at, updated_at, created_by")
+  const { data, error } = await db.from("notes").select("id, body, organisation_id, contact_id, via, created_at, updated_at, created_by, archived_at")
     .eq("workspace_id", workspaceId).is("deleted_at", null).or(ors.join(",")).order("created_at", { ascending: false }).limit(200);
   if (error) throw new Error(error.message);
   const ids = [...new Set((data ?? []).map((n) => n.created_by).filter(Boolean))] as string[];
@@ -50,9 +52,8 @@ export async function listNotes(db: Db, workspaceId: string, where: { orgIds?: s
 }
 
 export async function addNote(db: Db, workspaceId: string, n: { organisationId?: string | null; contactId?: string | null; body: string; via: NoteVia; userId: string | null }) {
-  const body = n.body.trim();
+  const body = cleanNoteBody(n.body);
   if (!body) throw new Error("Write something first.");
-  if (body.length > 20000) throw new Error("Notes are limited to 20,000 characters.");
   if (!n.organisationId && !n.contactId) throw new Error("A note needs an organisation or a person.");
   const { data, error } = await db.from("notes").insert({ workspace_id: workspaceId, organisation_id: n.organisationId ?? null, contact_id: n.contactId ?? null, body, via: n.via, created_by: n.userId }).select("id").single();
   if (error) throw new Error(error.message);
@@ -60,9 +61,23 @@ export async function addNote(db: Db, workspaceId: string, n: { organisationId?:
 }
 
 export async function editNote(db: Db, workspaceId: string, id: string, body: string) {
-  const b = body.trim();
+  const b = cleanNoteBody(body);
   if (!b) throw new Error("A note can't be empty. Delete it instead.");
   const { error } = await db.from("notes").update({ body: b }).eq("id", id).eq("workspace_id", workspaceId).is("deleted_at", null);
+  if (error) throw new Error(error.message);
+}
+
+/** Rich (HTML) bodies are sanitised; plain text is kept as plain text. Limits: 20,000 characters of text, 200 kB stored. */
+export function cleanNoteBody(body: string): string {
+  const raw = String(body ?? "");
+  const b = isRich(raw) || /<(strong|em|u|span|br|ul|ol|li|h[2-4])/i.test(raw) ? normaliseRichInput(raw) : raw.trim();
+  if (richToText(b).length > 20000) throw new Error("Notes are limited to 20,000 characters.");
+  if (b.length > 200000) throw new Error("This note has too much formatting to save. Clear some formatting and try again.");
+  return b;
+}
+
+export async function archiveNote(db: Db, workspaceId: string, id: string, archived: boolean) {
+  const { error } = await db.from("notes").update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", id).eq("workspace_id", workspaceId).is("deleted_at", null);
   if (error) throw new Error(error.message);
 }
 
@@ -93,7 +108,11 @@ export function cleanTags(tags: unknown): string[] {
 export async function updateFileMeta(db: Db, workspaceId: string, fileId: string, patch: { tags?: string[]; notes?: string | null }) {
   const row: Record<string, unknown> = {};
   if (patch.tags !== undefined) row.tags = cleanTags(patch.tags);
-  if (patch.notes !== undefined) row.notes = patch.notes && patch.notes.trim() ? patch.notes.slice(0, 10000) : null;
+  if (patch.notes !== undefined) {
+    const n = patch.notes ? cleanNoteBody(patch.notes) : "";
+    if (n.length > 60000) throw new Error("Document notes are limited in length. Shorten the note and try again.");
+    row.notes = n || null;
+  }
   if (!Object.keys(row).length) return;
   const { error } = await db.from("organisation_files").update(row).eq("id", fileId).eq("workspace_id", workspaceId).is("deleted_at", null);
   if (error) throw new Error(error.message);
@@ -195,4 +214,52 @@ export async function repoNotesFor(db: Db, workspaceId: string, crKey: string | 
     out.push({ sheet: r.sheet as string, key: r.row_key as string, label, note });
   }
   return out;
+}
+
+// ---------------------------------------------------------------- what an organisation still carries (shown before archive / delete)
+export interface OrgDependents {
+  contacts: number; notes: number; files: number; evidence: number; qualifications: number; drafts: number; conversations: number;
+  /** Central Repository rows (pipeline, partners, projects, contacts…) that point at this organisation. */
+  repoRefs: { sheet: string; key: string | null }[];
+}
+
+export async function orgDependents(db: Db, workspaceId: string, orgId: string): Promise<OrgDependents> {
+  const count = async (table: string) => {
+    const { count } = await db.from(table).select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("organisation_id", orgId);
+    return count ?? 0;
+  };
+  const [{ data: org }, contacts, notes, files, evidence, qualifications, drafts, conversations] = await Promise.all([
+    db.from("organisations").select("cr_key").eq("id", orgId).eq("workspace_id", workspaceId).maybeSingle(),
+    db.from("contact_organisations").select("contact_id", { count: "exact", head: true }).eq("organisation_id", orgId).then((r) => r.count ?? 0),
+    count("notes"), count("organisation_files"), count("evidence_items"), count("lead_qualifications"), count("outreach_drafts"), count("conversations"),
+  ]);
+  let repoRefs: OrgDependents["repoRefs"] = [];
+  if (org?.cr_key) {
+    const { data } = await db.from("cr_rows").select("sheet, row_key").eq("workspace_id", workspaceId).eq("data->>org_id", org.cr_key).neq("sheet", "Organisations").is("deleted_at", null).limit(50);
+    repoRefs = (data ?? []).map((r) => ({ sheet: r.sheet as string, key: r.row_key as string | null }));
+  }
+  return { contacts, notes, files, evidence, qualifications, drafts, conversations, repoRefs };
+}
+
+/**
+ * Permanent deletion. Only for an organisation already in Deleted. Research, notes, files, scores and links go with it;
+ * people stay (unlinked), drafts and conversations stay (no longer attached). An audit entry keeps what was removed.
+ */
+export async function purgeOrg(workspaceId: string, orgId: string, userId: string | null, confirmName: string) {
+  const admin = createAdminClient();
+  const { data: org } = await admin.from("organisations").select("id, trading_name, cr_key, deleted_at").eq("id", orgId).eq("workspace_id", workspaceId).maybeSingle();
+  if (!org) throw new Error("Organisation not found.");
+  if (!org.deleted_at) throw new Error("Delete it first (it moves to Deleted), then delete permanently from there.");
+  if (confirmName.trim().toLowerCase() !== String(org.trading_name).trim().toLowerCase()) throw new Error("Type the organisation's name exactly to confirm.");
+  const deps = await orgDependents(admin, workspaceId, orgId);
+  if (deps.repoRefs.length) throw new Error(`Still referenced by ${deps.repoRefs.length} Central Repository row(s): ${deps.repoRefs.slice(0, 4).map((r) => `${r.sheet.replace(/_/g, " ")} ${r.key ?? ""}`).join(", ")}. Remove those references first.`);
+  const { data: files } = await admin.from("organisation_files").select("path").eq("organisation_id", orgId);
+  const paths = (files ?? []).map((f) => f.path as string);
+  for (let i = 0; i < paths.length; i += 100) await admin.storage.from(BUCKET).remove(paths.slice(i, i + 100));
+  const { error } = await admin.from("organisations").delete().eq("id", orgId).eq("workspace_id", workspaceId);
+  if (error) throw new Error(error.message);
+  await admin.from("audit_logs").insert({
+    workspace_id: workspaceId, actor_type: userId ? "user" : "system", actor_id: userId, action: "organisation.purged", entity_type: "organisation", entity_id: orgId,
+    metadata: { name: org.trading_name, cr_key: org.cr_key, removed: { notes: deps.notes, files: deps.files, evidence: deps.evidence, qualifications: deps.qualifications }, kept: { contacts: deps.contacts, drafts: deps.drafts, conversations: deps.conversations } },
+  });
 }

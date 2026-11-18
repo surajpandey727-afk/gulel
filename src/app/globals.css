@@ -191,3 +191,37 @@ body {
 .docx-preview td, .docx-preview th { border: 1px solid #d4d0c8; padding: .35em .5em; vertical-align: top; }
 .docx-preview a { color: #2f5d3a; text-decoration: underline; }
 .docx-preview img { max-width: 100%; height: auto; }
+
+/* Rich notes: the same typography in the editor and wherever a note is read. */
+.rich-note { font-size: 0.875rem; line-height: 1.65; color: var(--ink); overflow-wrap: anywhere; }
+.rich-note > :first-child { margin-top: 0; }
+.rich-note > :last-child { margin-bottom: 0; }
+.rich-note p, .rich-note div { margin: 0 0 .7em; }
+.rich-note h2 { font-size: 1.15rem; font-weight: 600; line-height: 1.35; margin: 1.1em 0 .45em; letter-spacing: -0.01em; }
+.rich-note h3 { font-size: 1rem; font-weight: 600; line-height: 1.4; margin: 1em 0 .4em; }
+.rich-note h4 { font-size: .9rem; font-weight: 600; margin: .9em 0 .35em; }
+.rich-note ul { list-style: disc; padding-left: 1.4em; margin: 0 0 .7em; }
+.rich-note ol { list-style: decimal; padding-left: 1.6em; margin: 0 0 .7em; }
+.rich-note ul ul { list-style: circle; margin: .2em 0; }
+.rich-note ul ul ul { list-style: square; }
+.rich-note ol ol { list-style: lower-alpha; margin: .2em 0; }
+.rich-note li { margin: .15em 0; padding-left: .15em; }
+.rich-note li > p { margin: 0; }
+.rich-note blockquote { border-left: 2px solid var(--hairline); padding-left: .9em; color: var(--ink-2); margin: 0 0 .7em; }
+.rich-note a { color: var(--chart-2); text-decoration: underline; text-underline-offset: 2px; }
+.rich-note mark { background: #faf1ca; color: inherit; padding: 0 .1em; border-radius: 2px; }
+.rich-note [style*="background-color"] { border-radius: 2px; padding: 0 .1em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.rich-editor:empty::before { content: attr(data-placeholder); color: var(--ink-3); pointer-events: none; }
+.rich-editor:focus { outline: none; }
+/* Note colours are stored as the light palette; dark mode maps them to the dark palette so they stay readable. */
+[data-theme="dark"] .rich-note [style^="color: #141414"], [data-theme="dark"] .rich-note [style*="; color: #141414"] { color: var(--ink) !important; }
+[data-theme="dark"] .rich-note [style^="color: #071e07"], [data-theme="dark"] .rich-note [style*="; color: #071e07"] { color: #faf1ca !important; }
+[data-theme="dark"] .rich-note [style^="color: #2f5d3a"], [data-theme="dark"] .rich-note [style*="; color: #2f5d3a"] { color: #d9b48a !important; }
+[data-theme="dark"] .rich-note [style^="color: #8a5a1f"], [data-theme="dark"] .rich-note [style*="; color: #8a5a1f"] { color: #e0b267 !important; }
+[data-theme="dark"] .rich-note [style^="color: #7a1020"], [data-theme="dark"] .rich-note [style*="; color: #7a1020"] { color: #e58a94 !important; }
+[data-theme="dark"] .rich-note [style^="color: #6b665f"], [data-theme="dark"] .rich-note [style*="; color: #6b665f"] { color: #978c7e !important; }
+[data-theme="dark"] .rich-note [style*="background-color: #faf1ca"], [data-theme="dark"] .rich-note mark { background-color: #faf1ca29 !important; }
+[data-theme="dark"] .rich-note [style*="background-color: #e0b26759"] { background-color: #e0b26738 !important; }
+[data-theme="dark"] .rich-note [style*="background-color: #5c7a4a40"] { background-color: #d9b48a33 !important; }
+[data-theme="dark"] .rich-note [style*="background-color: #7a102026"] { background-color: #e58a9433 !important; }
+[data-theme="dark"] .rich-note [style*="background-color: #a69c8f40"] { background-color: #8f867640 !important; }

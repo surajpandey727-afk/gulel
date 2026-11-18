@@ -50,4 +50,6 @@ export type Op =
   | { op: "delete"; sheet: string; key: string }
   | { op: "restore"; sheet: string; key: string }
   | { op: "color"; sheet: string; key: string; color: string | null }
-  | { op: "move"; sheet: string; key: string; position: number };
+  | { op: "move"; sheet: string; key: string; position: number }
+  /** Reorder: put row `key` directly after row `after` (null = top) and renumber the sheet 1..n. */
+  | { op: "place"; sheet: string; key: string; after: string | null };

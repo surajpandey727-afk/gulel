@@ -26,7 +26,7 @@ export default async function BoardPage({ params, searchParams }: { params: Prom
   const [store, link, notes, files] = await Promise.all([
     loadStore(db, s.workspaceId),
     getLinkState(db, s.workspaceId),
-    db.from("notes").select("organisations!inner(cr_key)").eq("workspace_id", s.workspaceId).is("deleted_at", null).not("organisation_id", "is", null).not("organisations.cr_key", "is", null).limit(5000),
+    db.from("notes").select("organisations!inner(cr_key)").eq("workspace_id", s.workspaceId).is("deleted_at", null).is("archived_at", null).not("organisation_id", "is", null).not("organisations.cr_key", "is", null).limit(5000),
     db.from("organisation_files").select("organisations!inner(cr_key)").eq("workspace_id", s.workspaceId).is("deleted_at", null).not("organisations.cr_key", "is", null).limit(5000),
   ]);
   const orgFiles: Record<string, number> = {};
