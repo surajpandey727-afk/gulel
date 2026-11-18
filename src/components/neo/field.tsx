@@ -1,4 +1,5 @@
-import { forwardRef } from "react";
+"use client";
+import { cloneElement, forwardRef, isValidElement, useId } from "react";
 import { cn } from "./cn";
 
 const fieldCls =
@@ -22,15 +23,30 @@ export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<H
   );
 });
 
+/**
+ * A labelled form field. The label, hint and error are tied to the control automatically (id, aria-describedby,
+ * aria-invalid), so every input is announced by name even when the caller passes no htmlFor.
+ */
 export function Field({ label, hint, error, children, htmlFor, className }: { label: string; hint?: React.ReactNode; error?: string | null; children: React.ReactNode; htmlFor?: string; className?: string }) {
+  const auto = useId();
+  const child = isValidElement<{ id?: string; "aria-describedby"?: string; "aria-invalid"?: boolean }>(children) ? children : null;
+  const id = htmlFor ?? child?.props.id ?? `f${auto}`;
+  const noteId = `${id}-note`;
+  const control = child
+    ? cloneElement(child, {
+        id,
+        ...(error || hint ? { "aria-describedby": [child.props["aria-describedby"], noteId].filter(Boolean).join(" ") } : {}),
+        ...(error ? { "aria-invalid": true } : {}),
+      })
+    : children;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={htmlFor} className="text-xs font-medium text-ink-2">{label}</label>
-      {children}
+      <label htmlFor={id} className="text-xs font-medium text-ink-2">{label}</label>
+      {control}
       {error ? (
-        <p className="text-xs text-oxblood" role="alert">⚠ {error}</p>
+        <p id={noteId} className="text-xs text-oxblood" role="alert">⚠ {error}</p>
       ) : hint ? (
-        <p className="text-xs text-ink-3">{hint}</p>
+        <p id={noteId} className="text-xs text-ink-3">{hint}</p>
       ) : null}
     </div>
   );

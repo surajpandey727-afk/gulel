@@ -35,7 +35,7 @@ export function HeroKpi({ label, value, delta, className, numeric }: { label: st
           </motion.span>
         )}
       </div>
-      <div className="tabular text-[1.8rem] font-semibold leading-none tracking-tight text-ink">
+      <div className="tabular text-[1.8rem] font-semibold leading-[1.15] tracking-tight text-ink">
         {numeric ? (
           <CountUp
             to={numeric.to}
